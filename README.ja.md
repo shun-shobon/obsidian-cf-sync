@@ -47,7 +47,7 @@ pnpm deploy
 
 ## プラグインの導入
 
-[BRAT](https://tfthacker.com/brat-plugins)に`shun-shobon/obsidian-cf-sync`を追加し、CF Syncをインストールします。
+Obsidianの**設定 → コミュニティプラグイン → 閲覧**から**CF Sync**を検索し、インストールして有効化します。制限モードが有効な場合は、先にコミュニティプラグインを有効にしてください。
 
 1. CF Sync設定にサーバーURLと端末名を設定し、ログインします。
 2. ブラウザのAccess認証を終え、中間ページからObsidianへ戻ります。
@@ -55,3 +55,17 @@ pnpm deploy
 4. 既存ファイルが競合する場合は、初回の確認画面を確認します。異なる内容は別名で保持します。
 
 1つのローカルVaultを1つのリモートVaultへ接続します。別のリモートVaultを使う場合は別のローカルVaultを用意します。
+
+## 利用要件と料金
+
+Cloudflareアカウントと、そのアカウント内に自分で構築・管理するサーバーが必要です。サーバーではWorkers・Durable Objects・R2と、Managed OAuthを有効にしたCloudflare Accessを使います。サーバー用のカスタムドメインと、Accessポリシーで許可するメールアドレスも必要です。
+
+契約プランや使用量に応じてCloudflareの利用料金が発生する場合があります。構築前に[Workers](https://developers.cloudflare.com/workers/platform/pricing/)・[Durable Objects](https://developers.cloudflare.com/durable-objects/platform/pricing/)・[R2](https://developers.cloudflare.com/r2/pricing/)の料金を確認してください。
+
+## 外部通信とデータの扱い
+
+プラグインは、設定したサーバーとHTTPSおよび暗号化されたWebSocketで通信します。同期対象のファイル内容とパス、編集・削除操作、ファイルのメタデータ、リモートVaultの名前と識別子、端末名と識別子、同期除外設定を送信します。サーバーはこれらのデータをCloudflare WorkersとDurable Objectsで処理し、ファイルを自分のR2バケットに保存します。
+
+ログイン時には、サーバーのCloudflare Access OAuthエンドポイントと、Accessに設定した認証プロバイダー（ブラウザ内）へ接続します。OAuthのクライアント登録・認可・トークン交換に必要な情報を送信し、サーバーはAccessの認証情報に含まれるメールアドレスで同期の許可を確認します。
+
+CF Syncはエンドツーエンド暗号化に対応していません。通信は暗号化されますが、サーバーは同期内容を読み取ることができ、最新版のノートと添付ファイルは通常のファイルとしてR2に保存されます。

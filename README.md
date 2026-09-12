@@ -47,7 +47,7 @@ pnpm deploy
 
 ## Plugin installation
 
-Add `shun-shobon/obsidian-cf-sync` to [BRAT](https://tfthacker.com/brat-plugins) to install CF Sync.
+In Obsidian, open **Settings → Community plugins → Browse**, search for **CF Sync**, and install and enable it. If restricted mode is on, turn on community plugins first.
 
 1. Enter your server URL and device name in the CF Sync settings, then sign in.
 2. Complete Access authentication in your browser and return to Obsidian from the callback page.
@@ -55,3 +55,17 @@ Add `shun-shobon/obsidian-cf-sync` to [BRAT](https://tfthacker.com/brat-plugins)
 4. If existing files conflict, review the initial confirmation screen. Files with different contents are kept under separate names.
 
 Each local vault connects to one remote vault. To use a different remote vault, create a separate local vault.
+
+## Requirements and costs
+
+CF Sync requires a Cloudflare account and a server that you deploy and maintain in that account, using Workers, Durable Objects, R2, and Cloudflare Access with Managed OAuth. You also need a custom domain for the server and an email address allowed by your Access policy.
+
+Cloudflare charges may apply depending on your plan and usage. Review the pricing for [Workers](https://developers.cloudflare.com/workers/platform/pricing/), [Durable Objects](https://developers.cloudflare.com/durable-objects/platform/pricing/), and [R2](https://developers.cloudflare.com/r2/pricing/) before deploying.
+
+## Network access and data
+
+The plugin communicates with your configured server over HTTPS and secure WebSockets. It sends synced file contents and paths, edits and deletion operations, file metadata, remote vault names and identifiers, device names and identifiers, and sync exclusion settings. Your server processes this data in Cloudflare Workers and Durable Objects and stores files in your R2 bucket.
+
+Sign-in uses your server's Cloudflare Access OAuth endpoints and, in your browser, the identity provider configured in Access. OAuth registration, authorization, and token exchange send the information needed to authenticate; your server receives your email address in the Access identity assertion to check that you are allowed to sync.
+
+CF Sync does not provide end-to-end encryption. Transport is encrypted, but the server can read synced content, and the latest notes and attachments are stored in R2 as regular files.
