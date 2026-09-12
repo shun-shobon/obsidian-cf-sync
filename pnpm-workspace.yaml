@@ -1,0 +1,13 @@
+minimumReleaseAge: 1440
+saveExact: true
+strictDepBuilds: true
+trustPolicy: no-downgrade
+trustPolicyIgnoreAfter: 10080
+allowBuilds:
+  esbuild@0.28.1: true
+  esbuild@0.28.2: true
+  workerd@1.20260730.1: true
+  workerd@1.20260907.1: true
+overrides:
+  "@codemirror/state": "6.5.0"
+  "@codemirror/view": "6.38.6"

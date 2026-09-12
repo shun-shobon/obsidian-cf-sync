@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "obsidian-cf-sync",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-09-09",
+  "durable_objects": {
+    "bindings": [
+      { "name": "ACCOUNT", "class_name": "AccountDO" },
+      { "name": "VAULTS", "class_name": "VaultDO" },
+    ],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["AccountDO", "VaultDO"] }],
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "obsidian-cf-sync" }],
+}
