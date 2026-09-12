@@ -20,7 +20,7 @@ export function applyMove(
 
   if (pathChanged || destinationOccupied) {
     changes.result.conflict = true;
-    changes.result.message = "Move rejected: path changed or destination occupied";
+    changes.result.conflictReason = "move-rejected";
     changes.result.file = current.file;
     return;
   }

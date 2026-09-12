@@ -17,6 +17,7 @@ catalog:
   "@cloudflare/workers-types": 5.20260908.1
   fake-indexeddb: 6.2.5
   hono: 4.13.7
+  i18next: 26.4.2
   js-base64: 3.9.3
   lib0: 0.2.117
   valibot: 1.5.0

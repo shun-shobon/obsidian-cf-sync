@@ -1,14 +1,18 @@
 import * as v from "valibot";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { authStateSchema, metadataSchema, type AuthState } from "../src/domain/auth-state";
 import { initialSettings, settingsSchema } from "../src/domain/plugin-settings";
 import { serverOrigin } from "../src/domain/server-origin";
 import { urlSchema } from "../src/domain/url-schema";
+import { setLanguage } from "../src/i18n";
 import { OAuthClient } from "../src/infra/auth/oauth-client";
 import { tokenResponseSchema } from "../src/infra/auth/oauth-provider";
 import { challenge } from "../src/infra/auth/pkce";
 import type { HttpRequest, HttpResponse, Transport } from "../src/infra/http/transport";
+
+beforeEach(() => setLanguage("ja"));
+afterEach(() => setLanguage("en"));
 
 const resource = "https://sync.example.com/api";
 const resourceMetadataUrl =

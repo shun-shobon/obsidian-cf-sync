@@ -2,6 +2,7 @@ import { conflictPath, digest } from "@cf-sync/protocol";
 import { toUint8Array } from "js-base64";
 import * as Y from "yjs";
 
+import { t } from "../../i18n";
 import type { IncomingWrite } from "../domain/sync-state";
 import type { StoredData } from "../ports/sync-store";
 import type { VaultPort } from "../ports/vault-port";
@@ -54,7 +55,7 @@ export class RecoverIncoming {
   private async receivedBytes(): Promise<Uint8Array> {
     const received = await this.state.store.get("incoming");
     if (!received) {
-      throw new Error("受信中のファイルデータがありません");
+      throw new Error(t(($) => $.errors.missingIncoming));
     }
 
     return received;
@@ -84,7 +85,7 @@ export class RecoverIncoming {
     await this.preserveCopy(
       incoming,
       await this.receivedBytes(),
-      "削除と競合した受信内容を復旧コピーへ保護しました",
+      t(($) => $.sync.deletedRecovered),
     );
     const deleting = this.state.data.pending.some(
       (operation) => operation.fileId === incoming.file.id && operation.type === "delete",
@@ -109,14 +110,14 @@ export class RecoverIncoming {
       await this.preserveCopy(
         incoming,
         current,
-        "中断中に変更された内容を復旧コピーへ保護しました",
+        t(($) => $.sync.interruptedRecovered),
       );
     }
 
     const received = await this.receivedBytes();
     const written = await this.vault.writeIfUnchanged(incoming.file.path, current, received);
     if (!written) {
-      throw new Error("受信回復中にファイルが変更されました。再試行します");
+      throw new Error(t(($) => $.errors.recoveryChanged));
     }
   }
 

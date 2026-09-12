@@ -1,5 +1,7 @@
+import { t } from "../i18n";
+
 export class ApiError extends Error {
   constructor(readonly status: number) {
-    super(`同期 API エラー (${status})`);
+    super(t(($) => $.errors.apiFailed, { status: status }));
   }
 }

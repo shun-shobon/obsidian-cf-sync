@@ -4,6 +4,7 @@ import type { AuthState } from "../../domain/auth-state";
 import { AuthenticationError } from "../../domain/authentication-error";
 import { ConnectionError } from "../../domain/connection-error";
 import { serverOrigin } from "../../domain/server-origin";
+import { t } from "../../i18n";
 import type { Transport } from "../http/transport";
 
 import { registerClient, tokenResponseSchema } from "./oauth-provider";
@@ -48,21 +49,21 @@ export class OAuthClient {
     const pending = this.state.pending;
 
     if (!pending || !params["state"]) {
-      throw new AuthenticationError("ログイン要求が無効または期限切れです");
+      throw new AuthenticationError(t(($) => $.errors.loginExpired));
     }
 
     const stateMatches = params["state"] === pending.state;
     const isExpired = Date.now() - pending.createdAt > 10 * 60_000;
 
     if (!stateMatches || isExpired) {
-      throw new AuthenticationError("ログイン要求が無効または期限切れです");
+      throw new AuthenticationError(t(($) => $.errors.loginExpired));
     }
 
     delete this.state.pending;
     await this.save();
 
     if (params["error"] || !params["code"]) {
-      throw new AuthenticationError("ログインが許可されませんでした");
+      throw new AuthenticationError(t(($) => $.errors.loginDenied));
     }
 
     await this.exchange({
@@ -77,7 +78,7 @@ export class OAuthClient {
     const tokens = this.state.tokens;
 
     if (!tokens) {
-      throw new AuthenticationError("ログインが必要です");
+      throw new AuthenticationError(t(($) => $.errors.loginRequired));
     }
 
     if (tokens.expiresAt > Date.now() + 60_000) {
@@ -107,7 +108,7 @@ export class OAuthClient {
     const registration = this.state.registration;
 
     if (!registration) {
-      throw new AuthenticationError("ログインを開始してください");
+      throw new AuthenticationError(t(($) => $.errors.startLogin));
     }
 
     return this.transport({
@@ -129,31 +130,34 @@ export class OAuthClient {
         throw cause;
       }
 
-      throw new ConnectionError("認証サーバーに接続できません", { cause });
+      throw new ConnectionError(
+        t(($) => $.errors.authUnavailable),
+        { cause },
+      );
     });
 
     if (generation !== this.generation) {
-      throw new AuthenticationError("ログイン状態が変更されました");
+      throw new AuthenticationError(t(($) => $.errors.loginChanged));
     }
 
     if (response.status !== 200) {
       if (response.status === 400 || response.status === 401) {
         await this.logout();
-        throw new AuthenticationError("認証の有効期限が切れました。再ログインしてください");
+        throw new AuthenticationError(t(($) => $.errors.sessionExpired));
       }
 
-      throw new ConnectionError(`トークン取得に失敗しました (${response.status})`);
+      throw new ConnectionError(t(($) => $.errors.tokenFailed, { status: response.status }));
     }
 
     const result = v.parse(tokenResponseSchema, JSON.parse(response.text));
     const refreshToken = result.refresh_token ?? this.state.tokens?.refreshToken;
 
     if (!refreshToken) {
-      throw new AuthenticationError("リフレッシュトークンが発行されませんでした");
+      throw new AuthenticationError(t(($) => $.errors.missingRefreshToken));
     }
 
     if (generation !== this.generation) {
-      throw new AuthenticationError("ログイン状態が変更されました");
+      throw new AuthenticationError(t(($) => $.errors.loginChanged));
     }
 
     this.state.tokens = {

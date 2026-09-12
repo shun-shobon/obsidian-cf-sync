@@ -12,6 +12,7 @@
   "dependencies": {
     "@cf-sync/protocol": "workspace:*",
     "auth-header": "1.0.0",
+    "i18next": "catalog:",
     "js-base64": "catalog:",
     "lib0": "catalog:",
     "oauth4webapi": "3.8.8",

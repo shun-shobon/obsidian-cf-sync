@@ -1,5 +1,6 @@
 import type { FileRecord } from "@cf-sync/protocol";
 
+import { t } from "../../i18n";
 import type { LocalState, SyncStatus } from "../domain/sync-state";
 import type { SyncStore } from "../ports/sync-store";
 
@@ -82,5 +83,5 @@ function errorMessage(error: unknown): string {
     return error;
   }
 
-  return "同期処理に失敗しました";
+  return t(($) => $.errors.syncFailed);
 }

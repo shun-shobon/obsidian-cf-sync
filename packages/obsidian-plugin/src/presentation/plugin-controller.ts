@@ -3,6 +3,7 @@ import { Notice, type App } from "obsidian";
 import * as v from "valibot";
 
 import type { Settings } from "../domain/plugin-settings";
+import { t } from "../i18n";
 import { OAuthClient } from "../infra/auth/oauth-client";
 import { ApiClient } from "../infra/http/api-client";
 import { obsidianTransport } from "../infra/obsidian/http-transport";
@@ -69,14 +70,14 @@ export class PluginController {
   async finishLogin(params: Record<string, string>) {
     await this.authentication().finish(params);
     await this.api().registerDevice(this.config.deviceName);
-    new Notice("CF Sync にログインしました");
+    new Notice(t(($) => $.ui.loginSuccess));
     await this.connect();
   }
 
   async logout() {
     this.engine?.pause();
     await this.authentication().logout();
-    this.displayStatus("ログインが必要です");
+    this.displayStatus(t(($) => $.ui.loginRequired));
   }
 
   async changeServer(value: string) {
@@ -85,9 +86,7 @@ export class PluginController {
     }
 
     if (this.config.vaultId) {
-      throw new Error(
-        "接続先 Vault が設定済みです。別サーバーには別のローカル Vault を使用してください",
-      );
+      throw new Error(t(($) => $.ui.serverAlreadySelected));
     }
 
     await this.auth?.logout();

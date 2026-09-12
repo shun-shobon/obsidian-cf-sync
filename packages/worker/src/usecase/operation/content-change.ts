@@ -58,7 +58,7 @@ export async function applyContentChange(
   changes.result.conflict = target.conflict;
 
   if (target.conflict) {
-    changes.result.message = "Concurrent contents preserved as conflict copy";
+    changes.result.conflictReason = "content-preserved";
   }
 
   const fileWrite: FileWrite = { stored: { file, ...write.stored } };

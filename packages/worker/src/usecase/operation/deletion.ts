@@ -45,5 +45,5 @@ export async function applyDeletion(
   changes.dirty.add(file.path);
   changes.result.file = file;
   changes.result.conflict = true;
-  changes.result.message = "Concurrent edit preserved before deletion";
+  changes.result.conflictReason = "edit-preserved";
 }

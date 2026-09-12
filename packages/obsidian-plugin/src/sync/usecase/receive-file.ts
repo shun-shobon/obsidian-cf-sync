@@ -2,6 +2,7 @@ import { conflictPath, digest, type DocumentResponse, type FileRecord } from "@c
 import { toUint8Array, fromUint8Array } from "js-base64";
 import * as Y from "yjs";
 
+import { t } from "../../i18n";
 import type { LocalFile } from "../domain/sync-state";
 import type { ApiPort } from "../ports/api-port";
 import type { StoredData } from "../ports/sync-store";
@@ -299,7 +300,10 @@ export class ReceiveFile {
       documentRevision: document.file.revision,
     });
     if (remote.conflict) {
-      this.state.reportConflict(remote, "競合ファイルを同期しました");
+      this.state.reportConflict(
+        remote,
+        t(($) => $.sync.conflictReceived),
+      );
     }
 
     let receivedData: StoredData | undefined;

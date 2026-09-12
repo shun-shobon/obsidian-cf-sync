@@ -1,7 +1,8 @@
-import { Plugin } from "obsidian";
+import { getLanguage, Plugin } from "obsidian";
 import * as v from "valibot";
 
 import { initialSettings, settingsSchema, type Settings } from "./domain/plugin-settings";
+import { setLanguage, t } from "./i18n";
 import { registerCommands } from "./presentation/commands";
 import { editorExtension } from "./presentation/editor/extension";
 import { PluginController } from "./presentation/plugin-controller";
@@ -12,6 +13,8 @@ export default class CFSyncPlugin extends Plugin {
   private controller?: PluginController;
 
   override async onload() {
+    setLanguage(getLanguage());
+
     const data: unknown = await this.loadData();
     let config: Settings;
 
@@ -22,7 +25,7 @@ export default class CFSyncPlugin extends Plugin {
     }
 
     const status = this.addStatusBarItem();
-    status.setText("CF Sync: 未接続");
+    status.setText(`CF Sync: ${t(($) => $.ui.disconnected)}`);
     const controller = new PluginController(
       this.app,
       config,

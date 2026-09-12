@@ -1,5 +1,6 @@
 import * as Y from "yjs";
 
+import { t } from "../../i18n";
 import type { LocalFile } from "../domain/sync-state";
 import type { StoredData, SyncStore } from "../ports/sync-store";
 
@@ -88,7 +89,7 @@ export class Documents {
 
     const stored = await this.store.get(`doc:${oldId}`);
     if (!stored) {
-      throw new Error("競合ノートのローカル CRDT 状態がありません");
+      throw new Error(t(($) => $.errors.missingCrdt));
     }
 
     return { key: `doc:${file.id}`, value: stored };

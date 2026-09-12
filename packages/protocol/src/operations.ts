@@ -55,7 +55,7 @@ export const operationResultSchema = v.object({
   previousPathRevision: v.nullable(integerSchema),
   file: v.nullable(fileRecordSchema),
   conflict: v.boolean(),
-  message: v.optional(v.string()),
+  conflictReason: v.optional(v.picklist(["move-rejected", "edit-preserved", "content-preserved"])),
 });
 
 export type OperationResult = v.InferOutput<typeof operationResultSchema>;

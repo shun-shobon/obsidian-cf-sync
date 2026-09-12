@@ -3,6 +3,7 @@ import type * as Y from "yjs";
 
 import { ConnectionError } from "../../domain/connection-error";
 import { DocumentNotFoundError } from "../../domain/document-not-found-error";
+import { t } from "../../i18n";
 import type { LocalFile } from "../domain/sync-state";
 import { Documents } from "../service/documents";
 import { SyncConnection } from "../service/sync-connection";
@@ -38,7 +39,7 @@ export class SyncEngine {
     this.connection = new SyncConnection(
       api,
       (message) => this.receive(message),
-      () => this.failed(new ConnectionError("WebSocket が切断されました")),
+      () => this.failed(new ConnectionError(t(($) => $.errors.websocketDisconnected))),
     );
     this.state = new SyncState(
       store,

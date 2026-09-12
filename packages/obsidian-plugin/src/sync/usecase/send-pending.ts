@@ -1,5 +1,6 @@
 import { isExcluded, type Operation, type OperationResult } from "@cf-sync/protocol";
 
+import { t } from "../../i18n";
 import type { LocalFile } from "../domain/sync-state";
 import type { ApiPort } from "../ports/api-port";
 import type { StoredData } from "../ports/sync-store";
@@ -33,7 +34,7 @@ export class SendPending {
 
       const result = await this.api.operate(operation);
       if (result.opId !== operation.opId) {
-        throw new Error("操作応答の ID が一致しません");
+        throw new Error(t(($) => $.errors.operationMismatch));
       }
 
       await this.acknowledge(operation, result, local);
@@ -51,7 +52,7 @@ export class SendPending {
     const blob = operation.content.blob;
     const bytes = await this.state.store.get(`blob:${blob.key}`);
     if (!bytes) {
-      throw new Error("未送信の添付データがありません");
+      throw new Error(t(($) => $.errors.missingAttachment));
     }
 
     await this.api.upload(blob.key, bytes, blob.digest);
@@ -75,7 +76,18 @@ export class SendPending {
     state.pending = state.pending.filter((entry) => entry.opId !== operation.opId);
     state.attempted = state.attempted.filter((id) => id !== operation.opId);
     if (result.conflict && result.file) {
-      this.state.reportConflict(result.file, result.message ?? "競合内容を別名で保護しました");
+      const reasons: Record<NonNullable<OperationResult["conflictReason"]>, string> = {
+        "move-rejected": t(($) => $.sync.moveRejected),
+        "edit-preserved": t(($) => $.sync.editPreserved),
+        "content-preserved": t(($) => $.sync.contentPreserved),
+      };
+      let message: string = t(($) => $.sync.conflictPreserved);
+
+      if (result.conflictReason !== undefined) {
+        message = reasons[result.conflictReason];
+      }
+
+      this.state.reportConflict(result.file, message);
     }
 
     let savedData: StoredData | undefined;

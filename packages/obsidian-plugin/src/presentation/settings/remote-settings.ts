@@ -1,6 +1,7 @@
 import type { Device, Snapshot, VaultInfo } from "@cf-sync/protocol";
 import { Setting, type App } from "obsidian";
 
+import { t } from "../../i18n";
 import type { ApiClient } from "../../infra/http/api-client";
 import type { PluginController } from "../plugin-controller";
 
@@ -33,12 +34,13 @@ function renderVaultSelection(
   vaults: VaultInfo[],
 ) {
   new Setting(remote)
-    .setName("接続先 Vault")
-    .setDesc(
-      "一度接続したローカル Vault の接続先変更はできません。別 Vault には別のローカル Vault を使用してください。",
-    )
+    .setName(t(($) => $.ui.remoteVault))
+    .setDesc(t(($) => $.ui.remoteVaultDescription))
     .addDropdown((dropdown) => {
-      dropdown.addOption("", "選択してください");
+      dropdown.addOption(
+        "",
+        t(($) => $.ui.selectVault),
+      );
 
       for (const vault of vaults) {
         dropdown.addOption(vault.id, vault.name);
@@ -63,17 +65,17 @@ function renderCreateVault(
 ) {
   let name = "";
   new Setting(remote)
-    .setName("サーバーに Vault を作成")
+    .setName(t(($) => $.ui.createRemoteVault))
     .addText((input) =>
       input.onChange((value) => {
         name = value.trim();
       }),
     )
     .addButton((button) =>
-      button.setButtonText("作成").onClick(() => {
+      button.setButtonText(t(($) => $.ui.create)).onClick(() => {
         void controller.run(async () => {
           if (!name) {
-            throw new Error("Vault 名を入力してください");
+            throw new Error(t(($) => $.ui.vaultNameRequired));
           }
 
           await api.createVault(name);
@@ -89,13 +91,13 @@ function renderDevices(
   refresh: () => void,
   devices: Device[],
 ) {
-  remote.createEl("h3", { text: "端末" });
+  remote.createEl("h3", { text: t(($) => $.ui.devices) });
 
   for (const device of devices) {
     let description = device.id;
 
     if (device.revoked) {
-      description += " / 失効済み";
+      description += ` / ${t(($) => $.ui.revoked)}`;
     }
 
     new Setting(remote)
@@ -103,7 +105,7 @@ function renderDevices(
       .setDesc(description)
       .addButton((button) =>
         button
-          .setButtonText("失効")
+          .setButtonText(t(($) => $.ui.revoke))
           .setDisabled(device.revoked)
           .onClick(() => {
             void controller.run(async () => {
@@ -123,15 +125,15 @@ function renderExclusions(
 ) {
   let exclusions = snapshot.exclusions.join("\n");
   new Setting(remote)
-    .setName("除外パス")
-    .setDesc("1 行に 1 パス。フォルダー以下も対象です。ワイルドカードは使えません。")
+    .setName(t(($) => $.ui.excludedPaths))
+    .setDesc(t(($) => $.ui.excludedPathsDescription))
     .addTextArea((input) =>
       input.setValue(exclusions).onChange((value) => {
         exclusions = value;
       }),
     )
     .addButton((button) =>
-      button.setButtonText("保存").onClick(() => {
+      button.setButtonText(t(($) => $.ui.save)).onClick(() => {
         void controller.run(async () => {
           const paths = exclusions
             .split("\n")
@@ -145,11 +147,11 @@ function renderExclusions(
 }
 
 function renderConflicts(remote: HTMLElement, app: App, snapshot: Snapshot) {
-  remote.createEl("h3", { text: "競合ファイル" });
+  remote.createEl("h3", { text: t(($) => $.ui.conflictFiles) });
 
   for (const file of snapshot.files.filter((file) => file.conflict)) {
     new Setting(remote).setName(file.path).addButton((button) =>
-      button.setButtonText("開く").onClick(() => {
+      button.setButtonText(t(($) => $.ui.open)).onClick(() => {
         void app.workspace.openLinkText(file.path, "");
       }),
     );

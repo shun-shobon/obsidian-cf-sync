@@ -9,6 +9,7 @@ import * as v from "valibot";
 
 import { httpsUrlSchema, metadataSchema } from "../../domain/auth-state";
 import { AuthenticationError } from "../../domain/authentication-error";
+import { t } from "../../i18n";
 import type { HttpRequest, Transport } from "../http/transport";
 
 const resourceSchema = v.object({
@@ -24,17 +25,19 @@ async function requestResponse(transport: Transport, request: HttpRequest): Prom
 
 function resourceMetadataUrl(response: Response): string {
   if (response.status !== 401) {
-    throw new AuthenticationError(`保護されたAPIから401が返されませんでした (${response.status})`);
+    throw new AuthenticationError(
+      t(($) => $.errors.expectedUnauthorized, { status: response.status }),
+    );
   }
 
   const header = response.headers.get("www-authenticate");
   if (!header) {
-    throw new AuthenticationError("Accessの応答にWWW-Authenticateがありません");
+    throw new AuthenticationError(t(($) => $.errors.missingChallenge));
   }
 
   const challenge = parse(header);
   if (challenge.scheme.toLowerCase() !== "bearer" || challenge.token !== null) {
-    throw new AuthenticationError("AccessのBearer認証メタデータを取得できません");
+    throw new AuthenticationError(t(($) => $.errors.missingBearerMetadata));
   }
 
   const parameters = new Headers();

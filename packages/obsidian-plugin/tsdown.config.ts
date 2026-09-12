@@ -38,6 +38,7 @@ export default defineConfig({
       "valibot",
       "auth-header",
       "oauth4webapi",
+      "i18next",
     ],
   },
   outputOptions: { entryFileNames: "[name].js" },

@@ -1,5 +1,7 @@
 import { Modal, Setting, type App } from "obsidian";
 
+import { t } from "../i18n";
+
 class ConfirmInitialModal extends Modal {
   private accepted = false;
 
@@ -12,9 +14,9 @@ class ConfirmInitialModal extends Modal {
   }
 
   override onOpen() {
-    this.titleEl.setText("初回同期の内容確認");
+    this.titleEl.setText(t(($) => $.ui.confirmInitialTitle));
     this.contentEl.createEl("p", {
-      text: "同じパスに異なる内容があります。両方の内容を別名で保護して同期します。",
+      text: t(($) => $.ui.confirmInitialDescription),
     });
     const list = this.contentEl.createEl("ul");
 
@@ -23,10 +25,12 @@ class ConfirmInitialModal extends Modal {
     }
 
     new Setting(this.contentEl)
-      .addButton((button) => button.setButtonText("キャンセル").onClick(() => this.close()))
+      .addButton((button) =>
+        button.setButtonText(t(($) => $.ui.cancel)).onClick(() => this.close()),
+      )
       .addButton((button) =>
         button
-          .setButtonText("両方を保持して同期")
+          .setButtonText(t(($) => $.ui.keepBothAndSync))
           .setCta()
           .onClick(() => {
             this.accepted = true;

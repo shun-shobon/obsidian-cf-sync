@@ -73,6 +73,8 @@ Managed OAuthと実際のAccessパス設定を含む手順は、利用するClou
 
 ## プラグインの導入
 
+プラグインの表示はObsidianの言語設定に従います。日本語は日本語、それ以外は英語で表示します。認証後の復帰ページはブラウザの言語設定に従って英語・日本語を選びます。
+
 公開リリースが用意されたら、各端末のObsidianにBRATを導入し、このGitHubリポジトリを追加します。BRATによる導入・更新は[作者の手順](https://tfthacker.com/brat-plugins)を参照してください。
 
 手元で試す場合は、テスト用Vaultの`.obsidian/plugins/cf-sync/`へ`packages/obsidian-plugin/dist/main.js`と`packages/obsidian-plugin/dist/manifest.json`を配置し、コミュニティプラグイン設定でCF Syncを有効にします。

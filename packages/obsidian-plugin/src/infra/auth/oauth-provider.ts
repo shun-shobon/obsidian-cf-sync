@@ -1,5 +1,6 @@
 import * as v from "valibot";
 
+import { t } from "../../i18n";
 import type { HttpRequest, Transport } from "../http/transport";
 
 import { discoverAuthorizationServer } from "./oauth-discovery";
@@ -22,7 +23,7 @@ async function requestJson(transport: Transport, request: HttpRequest): Promise<
   const result = await transport(request);
 
   if (result.status < 200 || result.status >= 300) {
-    throw new Error(`認証設定の取得に失敗しました (${result.status})`);
+    throw new Error(t(($) => $.errors.providerFailed, { status: result.status }));
   }
 
   return JSON.parse(result.text) as unknown;

@@ -1,5 +1,6 @@
 import type { Operation } from "@cf-sync/protocol";
 
+import { t } from "../../../i18n";
 import type { LocalFile, LocalState } from "../../domain/sync-state";
 import type { StoredData, SyncStore } from "../../ports/sync-store";
 
@@ -36,8 +37,7 @@ export class IndexedDbStore implements SyncStore {
       };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
-      request.onblocked = () =>
-        reject(new Error("同期データベースが別のウィンドウで使用されています"));
+      request.onblocked = () => reject(new Error(t(($) => $.errors.databaseBusy)));
     });
   }
 
@@ -67,7 +67,7 @@ export class IndexedDbStore implements SyncStore {
 
       transaction.oncomplete = () => resolve();
       transaction.onabort = () =>
-        reject(transaction.error ?? new Error("同期データの保存が中断しました"));
+        reject(transaction.error ?? new Error(t(($) => $.errors.storageAborted)));
       transaction.onerror = () => reject(transaction.error);
     });
   }
@@ -159,7 +159,7 @@ export class IndexedDbStore implements SyncStore {
 
       transaction.oncomplete = () => resolve();
       transaction.onabort = () =>
-        reject(transaction.error ?? new Error("同期データの保存が中断しました"));
+        reject(transaction.error ?? new Error(t(($) => $.errors.storageAborted)));
       transaction.onerror = () => reject(transaction.error);
     });
     this.files = nextFiles;

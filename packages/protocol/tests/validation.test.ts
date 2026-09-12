@@ -40,7 +40,7 @@ describe("wire validation boundaries", () => {
     },
   );
 
-  it("distinguishes nullable acknowledgement fields from an omitted message", () => {
+  it("distinguishes nullable acknowledgement fields from an omitted conflict reason", () => {
     const result = {
       opId,
       revision: 1,
@@ -51,7 +51,17 @@ describe("wire validation boundaries", () => {
     };
 
     expect(v.parse(operationResultSchema, result)).toEqual(result);
-    expect(v.safeParse(operationResultSchema, { ...result, message: null }).success).toBe(false);
+    expect(v.safeParse(operationResultSchema, { ...result, conflictReason: null }).success).toBe(
+      false,
+    );
+    expect(
+      v.safeParse(operationResultSchema, { ...result, conflictReason: "unknown" }).success,
+    ).toBe(false);
+    for (const conflictReason of ["move-rejected", "edit-preserved", "content-preserved"]) {
+      expect(v.parse(operationResultSchema, { ...result, conflictReason }).conflictReason).toBe(
+        conflictReason,
+      );
+    }
   });
 
   it("enforces the R2 path byte budget for multibyte characters", () => {

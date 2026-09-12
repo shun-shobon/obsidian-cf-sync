@@ -1,6 +1,7 @@
 import { digest } from "@cf-sync/protocol";
 import { TFile, type Vault } from "obsidian";
 
+import { t } from "../../i18n";
 import type { VaultPort } from "../../sync/ports/vault-port";
 
 import { OwnFileEvents, type ExpectedEvent, type FileEvent } from "./own-file-events";
@@ -24,7 +25,7 @@ export class ObsidianVault implements VaultPort {
     const file = this.vault.getAbstractFileByPath(path);
 
     if (!(file instanceof TFile)) {
-      throw new Error(`ファイルが見つかりません: ${path}`);
+      throw new Error(t(($) => $.errors.fileMissing, { path: path }));
     }
 
     return new Uint8Array(await this.vault.readBinary(file));
@@ -50,7 +51,7 @@ export class ObsidianVault implements VaultPort {
     const existing = this.vault.getAbstractFileByPath(path);
 
     if (existing && !(existing instanceof TFile)) {
-      throw new Error(`フォルダーとファイルが衝突しています: ${path}`);
+      throw new Error(t(($) => $.errors.folderCollision, { path: path }));
     }
 
     const buffer = new Uint8Array(bytes).buffer;
@@ -162,7 +163,7 @@ export class ObsidianVault implements VaultPort {
     }
 
     if (!(file instanceof TFile)) {
-      throw new Error(`ファイルではありません: ${path}`);
+      throw new Error(t(($) => $.errors.notFile, { path: path }));
     }
 
     await this.events.run({ type: "delete", file, path }, () => this.vault.trash(file, true));
@@ -172,7 +173,7 @@ export class ObsidianVault implements VaultPort {
     const file = this.vault.getAbstractFileByPath(oldPath);
 
     if (!(file instanceof TFile)) {
-      throw new Error(`ファイルが見つかりません: ${oldPath}`);
+      throw new Error(t(($) => $.errors.fileMissing, { path: oldPath }));
     }
 
     await this.parents(newPath);
