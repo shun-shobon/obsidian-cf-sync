@@ -64,7 +64,7 @@ export class PluginController {
 
   async login() {
     const url = await this.authentication().begin();
-    window.open(url, "_blank", "noopener,noreferrer");
+    window.open(url, "_external");
   }
 
   async finishLogin(params: Record<string, string>) {
