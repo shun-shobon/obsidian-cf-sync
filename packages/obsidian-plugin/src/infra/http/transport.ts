@@ -7,6 +7,7 @@ export interface HttpRequest {
 
 export interface HttpResponse {
   status: number;
+  headers: Record<string, string>;
   text: string;
   bytes: ArrayBuffer;
 }

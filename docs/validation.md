@@ -31,7 +31,7 @@ Obsidian 1.13.7を隔離したプロファイルと一時Vaultで起動し、ビ
 
 ## 実機・本番で残る検証
 
-- Cloudflare Access Managed OAuthのメタデータ発見、public client登録、実際のJWT、30日のGrant session。
+- Obsidian実機からのCloudflare Access Managed OAuthのメタデータ発見、public client登録、実際のJWT、30日のGrant session。
 - 外部ブラウザから中間ページを経て、macOS・iOSの対象Vaultへ復帰する流れ。
 - macOSとiOSでの同時編集、Source・Live Preview、IME変換中のリモート更新、Undo。
 - iOSでのIndexedDB永続性、アプリ中断・復帰、添付転送中の終了、モバイル回線。
@@ -89,3 +89,11 @@ DOのalarmは、永続化したR2保存・添付掃除の期限と未使用接�
 Miniflare上のworkerdでWebSocketを接続し、alarmがない状態で20秒間通信しなかった後にDOのインスタンスが再生成されることを確認した。接続は維持され、再生成後の編集通知も同じWebSocketで受信した。これはローカル実行環境での確認であり、Cloudflare本番の課金計測やモバイルの長時間接続試験ではない。
 
 仮時計を使ったテストでは、クライアントが1時間無操作でも通信が増えないことと、接続を時間経過だけで閉じず端末失効で閉じることを確認した。復帰時の再走査、同期中の通知、削除競合、保存・掃除の再試行も検証した。変更後は15ファイル・全155テスト、型チェック、lint、整形チェック、両パッケージのビルドが成功した。
+
+## Cloudflare AccessのOAuth発見
+
+保護された`/api`の401応答から`WWW-Authenticate`の`resource_metadata`を読み、保護リソースのメタデータにある`authorization_servers`から認可サーバーを発見するよう変更した。ヘッダーの解析には`auth-header`、リソース・issuerの一致検証と認可サーバーの発見には`oauth4webapi`を使用する。登録・認可・コード交換・更新で同じ`resource`を渡す。
+
+修正した発見関数をNode.js上で実行し、公開中の`obsidian-cf-sync.s2n-tech.workers.dev/api`から401、保護リソースのメタデータから200、`s2n-tech.cloudflareaccess.com`の認可サーバーメタデータから200が返ることを確認した。GETのみ実施し、実際のクライアント登録とログイン完了は未確認。
+
+17ファイル・全175テスト、型チェック、lint、整形チェック、両パッケージのビルド、固定lockfileでのインストールが成功した。ObsidianのHTTPアダプターはモックで401と応答ヘッダーの保持を確認した。macOS・iOS実機での認証試験は残る。旧形式の保存済みregistrationには`resource`がないため、利用中の場合は保存済み認証情報を削除して再ログインする必要がある。

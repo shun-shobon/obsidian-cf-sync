@@ -8,7 +8,11 @@ import { urlSchema } from "../src/domain/url-schema";
 import { OAuthClient } from "../src/infra/auth/oauth-client";
 import { tokenResponseSchema } from "../src/infra/auth/oauth-provider";
 import { challenge } from "../src/infra/auth/pkce";
-import type { HttpRequest, Transport } from "../src/infra/http/transport";
+import type { HttpRequest, HttpResponse, Transport } from "../src/infra/http/transport";
+
+const resource = "https://sync.example.com/api";
+const resourceMetadataUrl =
+  "https://sync.example.com/.well-known/cloudflare-access-protected-resource/api";
 
 const metadata = {
   issuer: "https://team.cloudflareaccess.com",
@@ -16,22 +20,40 @@ const metadata = {
   token_endpoint: "https://team.cloudflareaccess.com/token",
   registration_endpoint: "https://team.cloudflareaccess.com/register",
 };
+
 function setup() {
   const requests: HttpRequest[] = [];
   let saves = 0;
   const state: AuthState = {};
-  const transport: Transport = async (request) => {
+  const transport: Transport = async (request): Promise<HttpResponse> => {
     requests.push(request);
+    if (request.url === resource) {
+      return {
+        status: 401,
+        headers: { "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadataUrl}"` },
+        text: "",
+        bytes: new ArrayBuffer(0),
+      };
+    }
+
     let result: unknown = metadata;
-    if (request.url === metadata.registration_endpoint) result = { client_id: "client" };
-    if (request.url === metadata.token_endpoint)
+    if (request.url === resourceMetadataUrl) {
+      result = { resource, authorization_servers: [metadata.issuer] };
+    }
+
+    if (request.url === metadata.registration_endpoint) {
+      result = { client_id: "client" };
+    }
+    if (request.url === metadata.token_endpoint) {
       result = {
         access_token: "oauth:secret",
         refresh_token: "refresh",
         expires_in: 900,
         token_type: "Bearer",
       };
-    return { status: 200, text: JSON.stringify(result), bytes: new ArrayBuffer(0) };
+    }
+
+    return { status: 200, headers: {}, text: JSON.stringify(result), bytes: new ArrayBuffer(0) };
   };
   return {
     state,
@@ -42,6 +64,7 @@ function setup() {
     saves: () => saves,
   };
 }
+
 describe("Managed OAuth", () => {
   it("persists public PKCE S256 login state before opening browser, exchanges once", async () => {
     const { client, state, requests, saves } = setup();
@@ -50,21 +73,27 @@ describe("Managed OAuth", () => {
     expect(url.searchParams.get("code_challenge")).toBe(await challenge(state.pending!.verifier));
     expect(url.searchParams.get("resource")).toBe("https://sync.example.com/api");
     expect(saves()).toBe(1);
-    expect(JSON.parse(requests[1]!.body as string)).toMatchObject({
+    expect(JSON.parse(requests[3]!.body as string)).toMatchObject({
       token_endpoint_auth_method: "none",
+      resource,
     });
     const params = { code: "code", state: state.pending!.state };
     await client.finish(params);
     expect(await client.token()).toBe("oauth:secret");
+    const exchangeRequest = requests.find((request) => request.url === metadata.token_endpoint);
+    const exchangeBody = new URLSearchParams(exchangeRequest!.body as string);
+    expect(exchangeBody.get("resource")).toBe(resource);
     await expect(client.finish(params)).rejects.toThrow("無効");
   });
+
   it("rejects a mismatching callback without consuming a valid login", async () => {
     const { client, state, requests } = setup();
     await client.begin();
     await expect(client.finish({ code: "evil", state: "bad" })).rejects.toThrow("無効");
     expect(state.pending).toBeDefined();
-    expect(requests).toHaveLength(2);
+    expect(requests).toHaveLength(4);
   });
+
   it("refreshes concurrent requests once and retains rotated token on disk", async () => {
     const { client, state, requests } = setup();
     await client.begin();
@@ -72,14 +101,22 @@ describe("Managed OAuth", () => {
     state.tokens!.expiresAt = 0;
     const tokens = await Promise.all([client.token(), client.token(), client.token()]);
     expect(tokens).toEqual(["oauth:secret", "oauth:secret", "oauth:secret"]);
-    expect(requests.filter((r) => r.url === metadata.token_endpoint)).toHaveLength(2);
+    const tokenRequests = requests.filter((request) => request.url === metadata.token_endpoint);
+    expect(tokenRequests).toHaveLength(2);
+
+    for (const request of tokenRequests) {
+      const body = new URLSearchParams(request.body as string);
+      expect(body.get("resource")).toBe(resource);
+    }
   });
+
   it("validates HTTPS server origins", () => {
     expect(serverOrigin("https://sync.example.com/")).toBe("https://sync.example.com");
     expect(() => serverOrigin("http://sync.example.com")).toThrow();
     expect(() => serverOrigin("https://sync.example.com/api")).toThrow();
     expect(() => serverOrigin("https://user:pass@sync.example.com")).toThrow();
   });
+
   it("refuses expired callbacks and keeps token secrets out of authorization URLs", async () => {
     const { client, state } = setup();
     const url = await client.begin();
@@ -90,9 +127,10 @@ describe("Managed OAuth", () => {
     expect(url).not.toContain("verifier");
     expect(url).not.toContain("refresh_token");
   });
+
   it("logout during a refresh does not revive the login", async () => {
     const state: AuthState = {
-      registration: { metadata, clientId: "client" },
+      registration: { metadata, clientId: "client", resource },
       tokens: { accessToken: "old", refreshToken: "refresh", expiresAt: 0 },
     };
     let complete!: (value: Awaited<ReturnType<Transport>>) => void;
@@ -109,6 +147,7 @@ describe("Managed OAuth", () => {
     await client.logout();
     complete({
       status: 200,
+      headers: {},
       text: JSON.stringify({
         access_token: "new",
         refresh_token: "next",

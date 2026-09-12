@@ -11,8 +11,10 @@
   },
   "dependencies": {
     "@cf-sync/protocol": "workspace:*",
+    "auth-header": "1.0.0",
     "js-base64": "catalog:",
     "lib0": "catalog:",
+    "oauth4webapi": "3.8.8",
     "valibot": "catalog:",
     "y-codemirror.next": "0.3.6",
     "y-protocols": "1.0.7",
@@ -22,6 +24,7 @@
     "@codemirror/commands": "6.11.0",
     "@codemirror/state": "6.5.0",
     "@codemirror/view": "6.38.6",
+    "@types/auth-header": "1.0.6",
     "fake-indexeddb": "catalog:",
     "happy-dom": "20.14.0",
     "obsidian": "1.13.1",

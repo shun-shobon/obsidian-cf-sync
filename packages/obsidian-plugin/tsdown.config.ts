@@ -36,6 +36,8 @@ export default defineConfig({
       "y-protocols",
       /^lib0(?:\/|$)/,
       "valibot",
+      "auth-header",
+      "oauth4webapi",
     ],
   },
   outputOptions: { entryFileNames: "[name].js" },

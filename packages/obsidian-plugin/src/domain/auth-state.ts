@@ -2,7 +2,7 @@ import * as v from "valibot";
 
 import { urlSchema } from "./url-schema";
 
-const httpsUrlSchema = v.pipe(
+export const httpsUrlSchema = v.pipe(
   urlSchema,
   v.check((value) => {
     if (!URL.canParse(value)) {
@@ -24,6 +24,7 @@ export type Metadata = v.InferOutput<typeof metadataSchema>;
 
 const registrationSchema = v.object({
   clientId: v.pipe(v.string(), v.minLength(1)),
+  resource: httpsUrlSchema,
   metadata: metadataSchema,
 });
 

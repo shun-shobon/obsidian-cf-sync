@@ -1,7 +1,8 @@
 import * as v from "valibot";
 
-import { metadataSchema } from "../../domain/auth-state";
 import type { HttpRequest, Transport } from "../http/transport";
+
+import { discoverAuthorizationServer } from "./oauth-discovery";
 
 export const tokenResponseSchema = v.object({
   access_token: v.pipe(v.string(), v.minLength(1)),
@@ -28,17 +29,14 @@ async function requestJson(transport: Transport, request: HttpRequest): Promise<
 }
 
 export async function registerClient(origin: string, transport: Transport) {
-  const metadataResponse = await requestJson(transport, {
-    url: `${origin}/.well-known/oauth-authorization-server`,
-    method: "GET",
-  });
-  const metadata = v.parse(metadataSchema, metadataResponse);
+  const { metadata, resource } = await discoverAuthorizationServer(origin, transport);
 
   const registrationResponse = await requestJson(transport, {
     url: metadata.registration_endpoint,
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      resource,
       client_name: "Obsidian CF Sync",
       redirect_uris: [`${origin}/oauth/callback`],
       grant_types: ["authorization_code", "refresh_token"],
@@ -48,5 +46,5 @@ export async function registerClient(origin: string, transport: Transport) {
   });
   const registration = v.parse(clientRegistrationSchema, registrationResponse);
 
-  return { clientId: registration.client_id, metadata };
+  return { clientId: registration.client_id, metadata, resource };
 }

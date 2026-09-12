@@ -38,7 +38,7 @@ export class OAuthClient {
       state: this.state.pending.state,
       code_challenge: await challenge(this.state.pending.verifier),
       code_challenge_method: "S256",
-      resource: `${this.origin}/api`,
+      resource: registration.resource,
     }).toString();
 
     return url.href;
@@ -117,7 +117,7 @@ export class OAuthClient {
       body: new URLSearchParams({
         ...parameters,
         client_id: registration.clientId,
-        resource: `${this.origin}/api`,
+        resource: registration.resource,
       }).toString(),
     });
   }

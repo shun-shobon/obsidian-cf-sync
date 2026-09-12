@@ -46,7 +46,7 @@ mise exec -- pnpm build:worker
 1. CloudflareでR2を有効にし、`packages/worker/wrangler.jsonc`の`bucket_name`を自分のバケット名へ変更します。新規作成には`mise exec -- pnpm --filter @cf-sync/worker exec wrangler r2 bucket create <バケット名>`を使います。
 2. 自分のHTTPSホスト名をWorkerのカスタムドメインへ割り当てます。プラグインにはパスを含まないこのオリジンを設定します。
 3. Accessのself-hosted applicationで同期APIの`/api/*`を保護し、自分のメールアドレスだけを許可します。Managed OAuthを有効にします。
-4. OAuthの許可リダイレクトURIを`https://<ホスト名>/oauth/callback`に設定します。public clientのDynamic Client RegistrationとPKCEによる認可コード交換を利用します。ルートの`/.well-known/oauth-authorization-server`からそのアプリのOAuthメタデータが取得できることも確認します。Accessのパス設定によって発見URLが届かない場合は、同じAccessアプリの対象にメタデータのパスも含めます。
+4. OAuthの許可リダイレクトURIを`https://<ホスト名>/oauth/callback`に設定します。public clientのDynamic Client RegistrationとPKCEによる認可コード交換を利用します。未認証の`/api`へのリクエストが401を返し、`WWW-Authenticate`に`resource_metadata`が含まれることを確認します。プラグインはそのURLの`authorization_servers`からAccessの認可サーバーを発見します。Worker直下に認可サーバーのメタデータを置いたり、そのパスをAccessの保護対象へ追加したりする必要はありません。
 5. アクセストークンの寿命は15分、Grant sessionは30日を希望値として設定します。アカウントの設定で30日が許可されるか確認してください。
 6. `/oauth/callback`と`/ws`は通常のAccessログインで遮断しません。コールバックは認可コードをObsidianへ渡し、`/ws`はWorkerが短命・一回限りの接続券を検証します。
 7. 以下のWorker環境変数を設定します。ローカル開発では同名の値を`packages/worker/.dev.vars`に記載します。このファイルはGitの対象外です。
