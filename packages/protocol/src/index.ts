@@ -1,5 +1,5 @@
 export { blobSchema, contentSchema, type BlobRef, type Content } from "./content";
-export { digest, fromBase64, toBase64 } from "./encoding";
+export { digest } from "./digest";
 export {
   documentSchema,
   fileRecordSchema,

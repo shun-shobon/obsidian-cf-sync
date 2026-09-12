@@ -10,6 +10,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "lib0": "0.2.117",
     "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "js-base64": "3.9.3"
   }
 }

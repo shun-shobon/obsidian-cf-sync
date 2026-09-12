@@ -15,6 +15,7 @@
     "@cf-sync/protocol": "workspace:*",
     "hono": "4.13.7",
     "jose": "6.2.12",
+    "js-base64": "3.9.3",
     "yjs": "13.6.32",
     "zod": "4.5.4"
   },

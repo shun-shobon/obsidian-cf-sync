@@ -1,18 +1,18 @@
-import "fake-indexeddb/auto";
 import { mkdtemp, rm } from "node:fs/promises";
+
+import "fake-indexeddb/auto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
   digest,
-  fromBase64,
-  toBase64,
   type Operation,
   type Snapshot,
   type DocumentResponse,
   type BlobRef,
 } from "@cf-sync/protocol";
 import { build } from "esbuild";
+import { toUint8Array, fromUint8Array } from "js-base64";
 import { Miniflare } from "miniflare";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as Y from "yjs";
@@ -59,14 +59,14 @@ async function start(folder?: string) {
 function textUpdate(text: string) {
   const doc = new Y.Doc();
   doc.getText("content").insert(0, text);
-  const update = toBase64(Y.encodeStateAsUpdate(doc));
+  const update = fromUint8Array(Y.encodeStateAsUpdate(doc));
   doc.destroy();
   return update;
 }
 function plain(content: DocumentResponse) {
   if (content.content.kind !== "text") throw new Error("not text");
   const doc = new Y.Doc();
-  Y.applyUpdate(doc, fromBase64(content.content.update));
+  Y.applyUpdate(doc, toUint8Array(content.content.update));
   const text = doc.getText("content").toString();
   doc.destroy();
   return text;
@@ -111,7 +111,7 @@ describe("Durable Object and R2 runtime integration", () => {
     if (current.content.kind !== "text") throw new Error("not text");
     const left = new Y.Doc(),
       right = new Y.Doc();
-    for (const doc of [left, right]) Y.applyUpdate(doc, fromBase64(current.content.update));
+    for (const doc of [left, right]) Y.applyUpdate(doc, toUint8Array(current.content.update));
     left.getText("content").insert(0, "L");
     right.getText("content").insert(4, "R");
     for (const doc of [left, right])
@@ -121,7 +121,7 @@ describe("Durable Object and R2 runtime integration", () => {
         fileId: id,
         path: "note.md",
         baseRevision: base.revision,
-        content: { kind: "text", update: toBase64(Y.encodeStateAsUpdate(doc)) },
+        content: { kind: "text", update: fromUint8Array(Y.encodeStateAsUpdate(doc)) },
       });
     expect(plain(await document(mf, id))).toBe("LbaseR");
     const removed = await apply(mf, {
@@ -140,7 +140,7 @@ describe("Durable Object and R2 runtime integration", () => {
       fileId: id,
       path: "note.md",
       baseRevision: base.revision,
-      content: { kind: "text", update: toBase64(Y.encodeStateAsUpdate(left)) },
+      content: { kind: "text", update: fromUint8Array(Y.encodeStateAsUpdate(left)) },
     });
     expect(recovered.conflict).toBe(true);
     await apply(mf, {

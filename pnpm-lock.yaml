@@ -134,6 +134,9 @@ importers:
       fake-indexeddb:
         specifier: 6.2.5
         version: 6.2.5
+      js-base64:
+        specifier: 3.9.3
+        version: 3.9.3
       miniflare:
         specifier: 4.20260730.0
         version: 4.20260730.0
@@ -164,6 +167,12 @@ importers:
       '@cf-sync/protocol':
         specifier: workspace:*
         version: link:../protocol
+      js-base64:
+        specifier: 3.9.3
+        version: 3.9.3
+      lib0:
+        specifier: 0.2.117
+        version: 0.2.117
       y-codemirror.next:
         specifier: 0.3.6
         version: 0.3.6(@codemirror/state@6.5.0)(@codemirror/view@6.38.6)(yjs@13.6.32)
@@ -201,9 +210,16 @@ importers:
 
   packages/protocol:
     dependencies:
+      lib0:
+        specifier: 0.2.117
+        version: 0.2.117
       zod:
         specifier: 4.5.4
         version: 4.5.4
+    devDependencies:
+      js-base64:
+        specifier: 3.9.3
+        version: 3.9.3
 
   packages/worker:
     dependencies:
@@ -216,6 +232,9 @@ importers:
       jose:
         specifier: 6.2.12
         version: 6.2.12
+      js-base64:
+        specifier: 3.9.3
+        version: 3.9.3
       yjs:
         specifier: 13.6.32
         version: 13.6.32
@@ -1636,6 +1655,9 @@ packages:
   jose@6.2.12:
     resolution: {integrity: sha512-9NiFmJEex0sy2Dk58j2UGBSHgUs2ypF9eZSu4L6vjOX3Dp96Sw1F3uL+H+D1sx02jZZdzUT0HgvCy59CuvXcWw==}
 
+  js-base64@3.9.3:
+    resolution: {integrity: sha512-uwYQp+VJ38FVvtim6qNbit6e9uT6dwWQ4Y1+H9TxhW5hcHjpHwoxlR0nMpqUmIFOmu4VqMxwdJA88gIVuZJQ/g==}
+
   kleur@4.1.5:
     resolution: {integrity: sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ==}
     engines: {node: '>=6'}
@@ -2982,6 +3004,8 @@ snapshots:
   isomorphic.js@0.2.5: {}
 
   jose@6.2.12: {}
+
+  js-base64@3.9.3: {}
 
   kleur@4.1.5: {}
 

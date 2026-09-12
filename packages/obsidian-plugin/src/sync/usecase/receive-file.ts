@@ -1,11 +1,5 @@
-import {
-  conflictPath,
-  digest,
-  fromBase64,
-  toBase64,
-  type DocumentResponse,
-  type FileRecord,
-} from "@cf-sync/protocol";
+import { conflictPath, digest, type DocumentResponse, type FileRecord } from "@cf-sync/protocol";
+import { toUint8Array, fromUint8Array } from "js-base64";
 import * as Y from "yjs";
 
 import type { LocalFile } from "../domain/sync-state";
@@ -126,9 +120,9 @@ export class ReceiveFile {
     const doc = await this.documents.open(local);
     const staged = new Y.Doc();
     Y.applyUpdate(staged, Y.encodeStateAsUpdate(doc));
-    Y.applyUpdate(staged, fromBase64(document.content.update));
+    Y.applyUpdate(staged, toUint8Array(document.content.update));
     const bytes = new TextEncoder().encode(staged.getText("content").toString());
-    const update = toBase64(Y.encodeStateAsUpdate(staged));
+    const update = fromUint8Array(Y.encodeStateAsUpdate(staged));
     staged.destroy();
     return { bytes, update, doc, wasOpen };
   }
@@ -211,7 +205,7 @@ export class ReceiveFile {
   ): Promise<void> {
     if (!existing) this.state.data.files.push(local);
     if (content.doc && document.content.kind === "text") {
-      Y.applyUpdate(content.doc, fromBase64(document.content.update), "remote");
+      Y.applyUpdate(content.doc, toUint8Array(document.content.update), "remote");
     }
     context?.byId.set(local.id, local);
     context?.byPath.set(remote.path, local);

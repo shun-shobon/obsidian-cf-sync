@@ -1,11 +1,5 @@
-import {
-  digest,
-  fromBase64,
-  toBase64,
-  type FileRecord,
-  type Operation,
-  type OperationResult,
-} from "@cf-sync/protocol";
+import { digest, type FileRecord, type Operation, type OperationResult } from "@cf-sync/protocol";
+import { toUint8Array, fromUint8Array } from "js-base64";
 import * as Y from "yjs";
 
 import type { ApiPort } from "../../src/sync/ports/api-port";
@@ -38,7 +32,7 @@ export class Server {
       const value = this.docs.get(id)!;
       return {
         file: { ...value.file },
-        content: { kind: "text", update: toBase64(Y.encodeStateAsUpdate(value.doc)) },
+        content: { kind: "text", update: fromUint8Array(Y.encodeStateAsUpdate(value.doc)) },
       };
     },
     operate: (operation) => this.operate(operation),
@@ -88,7 +82,7 @@ export class Server {
 
     const value = this.docs.get(operation.fileId) ?? this.createDocument(operation);
     if ("content" in operation && operation.content.kind === "text") {
-      Y.applyUpdate(value.doc, fromBase64(operation.content.update));
+      Y.applyUpdate(value.doc, toUint8Array(operation.content.update));
     }
     const conflict =
       operation.type === "move" && operation.basePathRevision !== value.file.pathRevision;

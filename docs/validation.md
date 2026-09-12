@@ -53,3 +53,11 @@ Worker・Obsidianプラグイン・共有プロトコルをpnpm workspaceの独�
 独立レビューでは、同期・競合・中断回復の処理順序と責務の分割を確認した。設定画面に残っていた操作手順をControllerへ移し、指摘を解消した。
 
 プラグインのCommonJSビルドは、依存の解決先をブラウザーへ明示した。成果物にNode.js専用モジュールや未同梱の依存が残ればビルドを失敗させる。Node.js向け解決へ一時的に戻す検証で、混入を検出して失敗することも確認した。この検証はiOS実機確認を代替しない。
+
+## 標準機能・既存ライブラリの利用
+
+Node.js 24のLTS環境を維持し、Base64とBase64URLを[js-base64](https://github.com/dankogai/js-base64)のバイト列APIへ置き換えた。Hexは`lib0/buffer`、文字列差分は`lib0/diff`を利用する。自前差分で絵文字が壊れるケースを再現し、サロゲートペアの境界を検証する回帰テストを追加した。
+
+OAuthコールバックは[Hono JSX](https://hono.dev/docs/guides/jsx)とrendererにHTML生成を委譲した。Account/Vault DOと公開APIもHonoのルート・middleware・エラーハンドラーへ移し、独立レビューで認証順序・公開経路・DO直列化を確認した。
+
+変更後は全84テスト、型チェック、lint、両パッケージのビルド、固定lockfileでのインストールが成功した。実機・本番で残る検証範囲は上記のとおり。

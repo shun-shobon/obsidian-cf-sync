@@ -28,7 +28,15 @@ export default defineConfig({
   ],
   deps: {
     neverBundle: ["obsidian", /^@codemirror\//, /^@lezer\//],
-    alwaysBundle: ["@cf-sync/protocol", "yjs", "y-codemirror.next", "y-protocols", "lib0", "zod"],
+    alwaysBundle: [
+      "@cf-sync/protocol",
+      "js-base64",
+      "yjs",
+      "y-codemirror.next",
+      "y-protocols",
+      /^lib0(?:\/|$)/,
+      "zod",
+    ],
   },
   outputOptions: { entryFileNames: "[name].js" },
 });

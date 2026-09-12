@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@cf-sync/protocol": "workspace:*",
+    "js-base64": "3.9.3",
+    "lib0": "0.2.117",
     "y-codemirror.next": "0.3.6",
     "y-protocols": "1.0.7",
     "yjs": "13.6.32",

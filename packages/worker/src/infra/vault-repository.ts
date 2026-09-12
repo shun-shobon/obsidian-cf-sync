@@ -1,4 +1,5 @@
-import { isExcluded, toBase64, type Content, type OperationResult } from "@cf-sync/protocol";
+import { isExcluded, type Content, type OperationResult } from "@cf-sync/protocol";
+import { fromUint8Array } from "js-base64";
 
 import { ApplicationError } from "../domain/errors";
 import {
@@ -73,7 +74,7 @@ export class VaultRepository {
       offset += chunk.length;
     }
 
-    return { kind: "text", update: toBase64(bytes) };
+    return { kind: "text", update: fromUint8Array(bytes) };
   }
 
   async setExclusions(meta: VaultMeta, exclusions: string[]): Promise<void> {

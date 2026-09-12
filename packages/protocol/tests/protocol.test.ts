@@ -1,14 +1,7 @@
+import { toUint8Array, fromUint8Array } from "js-base64";
 import { describe, expect, it } from "vitest";
 
-import {
-  conflictPath,
-  digest,
-  fromBase64,
-  isExcluded,
-  operationSchema,
-  pathSchema,
-  toBase64,
-} from "../src/index";
+import { conflictPath, digest, isExcluded, operationSchema, pathSchema } from "../src/index";
 
 describe("portable paths and explicit exclusions", () => {
   it.each([
@@ -38,7 +31,7 @@ describe("portable paths and explicit exclusions", () => {
 describe("wire encoding", () => {
   it("roundtrips binary beyond JS argument limits", () => {
     const bytes = new Uint8Array(300_000).map((_, index) => index % 256);
-    expect(fromBase64(toBase64(bytes))).toEqual(bytes);
+    expect(toUint8Array(fromUint8Array(bytes))).toEqual(bytes);
   });
   it("hashes actual bytes", async () => {
     expect(await digest(new TextEncoder().encode("abc"))).toBe(

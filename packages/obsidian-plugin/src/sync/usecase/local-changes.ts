@@ -1,4 +1,5 @@
-import { digest, isExcluded, pathSchema, toBase64, type Content } from "@cf-sync/protocol";
+import { digest, isExcluded, pathSchema, type Content } from "@cf-sync/protocol";
+import { fromUint8Array } from "js-base64";
 import * as Y from "yjs";
 
 import type { LocalFile } from "../domain/sync-state";
@@ -159,7 +160,7 @@ export class LocalChanges {
       const update = Y.encodeStateAsUpdate(doc);
       return {
         savedData: { key: `doc:${file.id}`, value: update },
-        content: { kind: "text", update: toBase64(update) },
+        content: { kind: "text", update: fromUint8Array(update) },
       };
     }
 

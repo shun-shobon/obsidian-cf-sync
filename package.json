@@ -26,6 +26,7 @@
     "@types/node": "^24.13.3",
     "esbuild": "0.28.1",
     "fake-indexeddb": "6.2.5",
+    "js-base64": "3.9.3",
     "miniflare": "4.20260730.0",
     "oxfmt": "0.67.0",
     "oxlint": "1.82.0",

@@ -1,17 +1,14 @@
-import {
-  fromBase64,
-  toBase64,
-  type Operation,
-  type OperationResult,
-  type Snapshot,
-} from "@cf-sync/protocol";
+import { type Operation, type OperationResult, type Snapshot } from "@cf-sync/protocol";
+import { Hono } from "hono";
+import { toUint8Array, fromUint8Array } from "js-base64";
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
 import { authenticate } from "../src/infra/access-auth";
+import { Account } from "../src/infra/durable-objects/account";
 import { Vault } from "../src/infra/durable-objects/vault";
 import type { Env } from "../src/infra/env";
-import { handleErrors } from "../src/infra/http/responses";
+import { onError } from "../src/infra/http/responses";
 
 class Storage {
   data = new Map<string, unknown>();
@@ -89,6 +86,8 @@ function setup() {
     call,
     operation,
     vaultId,
+    deviceId,
+    fetch: (request: Request) => vault.fetch(request),
     fail: (value: boolean) => {
       fail = value;
     },
@@ -101,7 +100,7 @@ function setup() {
 function text(value: string) {
   const doc = new Y.Doc();
   doc.getText("content").insert(0, value);
-  return { kind: "text" as const, update: toBase64(Y.encodeStateAsUpdate(doc)) };
+  return { kind: "text" as const, update: fromUint8Array(Y.encodeStateAsUpdate(doc)) };
 }
 function create(path: string, value: string): Operation {
   return {
@@ -134,8 +133,8 @@ describe("Vault durable synchronization", () => {
     if (op.type !== "create" || op.content.kind !== "text") throw new Error();
     const a = new Y.Doc();
     const b = new Y.Doc();
-    Y.applyUpdate(a, fromBase64(op.content.update));
-    Y.applyUpdate(b, fromBase64(op.content.update));
+    Y.applyUpdate(a, toUint8Array(op.content.update));
+    Y.applyUpdate(b, toUint8Array(op.content.update));
     a.getText("content").insert(4, "A");
     b.getText("content").insert(4, "B");
     for (const doc of [a, b])
@@ -145,7 +144,7 @@ describe("Vault durable synchronization", () => {
         fileId: op.fileId,
         path: "a.md",
         baseRevision: 1,
-        content: { kind: "text", update: toBase64(Y.encodeStateAsUpdate(doc)) },
+        content: { kind: "text", update: fromUint8Array(Y.encodeStateAsUpdate(doc)) },
       });
     const result = await s.operation({
       type: "delete",
@@ -245,10 +244,13 @@ describe("Vault durable synchronization", () => {
 });
 it("fails closed without Access configuration or a signed assertion", async () => {
   async function authenticateResponse(env: Env): Promise<Response> {
-    return handleErrors(async () => {
+    const app = new Hono();
+    app.onError(onError);
+    app.get("/", async () => {
       await authenticate(new Request("https://test"), env);
       return new Response(null, { status: 204 });
     });
+    return app.request("https://test/");
   }
 
   expect((await authenticateResponse({} as Env)).status).toBe(503);
@@ -261,4 +263,69 @@ it("fails closed without Access configuration or a signed assertion", async () =
       } as Env)
     ).status,
   ).toBe(401);
+});
+
+describe("Durable Object HTTP routing", () => {
+  it.each([
+    ["/snapshot", "POST"],
+    ["/operations", "PUT"],
+    ["/ws", "POST"],
+    ["/revoke", "GET"],
+    ["/snapshot/extra", "GET"],
+    ["/files", "GET"],
+  ])("rejects %s with method %s", async (path, method) => {
+    const s = setup();
+    const response = await s.fetch(
+      new Request(`https://internal${path}`, {
+        method,
+        headers: { "X-Vault-Id": s.vaultId, "X-Device-Id": s.deviceId },
+      }),
+    );
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "Not found" });
+  });
+
+  it("revokes without vault headers and rejects subsequent authenticated operations", async () => {
+    const s = setup();
+    const revoked = await s.fetch(
+      new Request("https://internal/revoke", {
+        method: "POST",
+        body: JSON.stringify({ deviceId: s.deviceId }),
+      }),
+    );
+    expect(revoked.status).toBe(200);
+    expect((await s.call("/snapshot")).status).toBe(403);
+  });
+
+  it("reads the latest metadata for every request", async () => {
+    const s = setup();
+    await s.operation(create("first.md", "first"));
+    expect(((await (await s.call("/snapshot")).json()) as Snapshot).revision).toBe(1);
+    await s.operation(create("second.md", "second"));
+    expect(((await (await s.call("/snapshot")).json()) as Snapshot).revision).toBe(2);
+  });
+
+  it("routes account devices and vaults with method and parameter validation", async () => {
+    const account = new Account(
+      { storage: new Storage() } as unknown as DurableObjectState,
+      {} as Env,
+    );
+    const device = { id: crypto.randomUUID(), name: "Laptop" };
+    const call = (path: string, method = "GET", body?: unknown) =>
+      account.fetch(
+        new Request(`https://internal${path}`, {
+          method,
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        }),
+      );
+    expect((await call("/devices", "POST", device)).status).toBe(200);
+    expect(await (await call(`/devices/${device.id}`)).json()).toMatchObject(device);
+    expect((await call(`/devices/${device.id}`, "PUT", {})).status).toBe(404);
+    expect((await call(`/devices/${device.id}/extra`)).status).toBe(404);
+    expect((await call("/devices/invalid")).status).toBe(400);
+    const vault = { id: crypto.randomUUID(), name: "Notes" };
+    expect((await call("/vaults", "POST", vault)).status).toBe(200);
+    expect(await (await call(`/vaults/${vault.id}`)).json()).toEqual(vault);
+    expect((await call(`/vaults/${vault.id}`, "DELETE")).status).toBe(404);
+  });
 });

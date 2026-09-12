@@ -1,4 +1,5 @@
-import { digest, fromBase64 } from "@cf-sync/protocol";
+import { digest } from "@cf-sync/protocol";
+import { toUint8Array } from "js-base64";
 import * as Y from "yjs";
 
 import { ApplicationError } from "../domain/errors";
@@ -7,7 +8,7 @@ export function materializeText(update: string): Uint8Array {
   const doc = new Y.Doc();
 
   try {
-    Y.applyUpdate(doc, fromBase64(update));
+    Y.applyUpdate(doc, toUint8Array(update));
     return new TextEncoder().encode(doc.getText("content").toJSON());
   } finally {
     doc.destroy();
@@ -25,8 +26,8 @@ export async function mergeText(
   const doc = new Y.Doc();
 
   try {
-    if (previous) Y.applyUpdate(doc, fromBase64(previous));
-    Y.applyUpdate(doc, fromBase64(update));
+    if (previous) Y.applyUpdate(doc, toUint8Array(previous));
+    Y.applyUpdate(doc, toUint8Array(update));
     const plain = new TextEncoder().encode(doc.getText("content").toJSON());
 
     return { update: Y.encodeStateAsUpdate(doc), size: plain.length, digest: await digest(plain) };

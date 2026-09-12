@@ -1,4 +1,5 @@
-import { fromBase64, type Operation } from "@cf-sync/protocol";
+import { type Operation } from "@cf-sync/protocol";
+import { toUint8Array } from "js-base64";
 
 import type { OperationChanges, StoredFile, VaultMeta } from "../../domain/vault-state";
 import { allocateConflictPath } from "../../service/path-conflicts";
@@ -31,7 +32,7 @@ export async function applyDeletion(
   const content = await repository.content(current);
   changes.writes.push({
     stored: { ...current, file },
-    ...(content.kind === "text" ? { update: fromBase64(content.update) } : {}),
+    ...(content.kind === "text" ? { update: toUint8Array(content.update) } : {}),
   });
   changes.dirty.add(file.path);
   changes.result.file = file;

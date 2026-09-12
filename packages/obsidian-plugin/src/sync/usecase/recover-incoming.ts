@@ -1,4 +1,5 @@
-import { conflictPath, digest, fromBase64 } from "@cf-sync/protocol";
+import { conflictPath, digest } from "@cf-sync/protocol";
+import { toUint8Array } from "js-base64";
 import * as Y from "yjs";
 
 import type { IncomingWrite } from "../domain/sync-state";
@@ -116,7 +117,7 @@ export class RecoverIncoming {
     } else Object.assign(local, received);
 
     const data = incoming.update
-      ? { key: `doc:${local.id}`, value: fromBase64(incoming.update) }
+      ? { key: `doc:${local.id}`, value: toUint8Array(incoming.update) }
       : undefined;
     await this.state.store.save({ ...this.state.data, incoming: null }, data);
     this.state.data.incoming = null;

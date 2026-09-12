@@ -10,7 +10,7 @@ export default defineConfig({
   },
   overrides: [
     {
-      files: ["packages/*/src/**/*.ts"],
+      files: ["packages/*/src/**/*.{ts,tsx}"],
       rules: {
         "max-lines-per-function": ["error", { max: 60, skipBlankLines: true, skipComments: true }],
       },
