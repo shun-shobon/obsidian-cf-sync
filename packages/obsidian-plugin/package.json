@@ -11,18 +11,18 @@
   },
   "dependencies": {
     "@cf-sync/protocol": "workspace:*",
-    "js-base64": "3.9.3",
-    "lib0": "0.2.117",
-    "valibot": "1.5.0",
+    "js-base64": "catalog:",
+    "lib0": "catalog:",
+    "valibot": "catalog:",
     "y-codemirror.next": "0.3.6",
     "y-protocols": "1.0.7",
-    "yjs": "13.6.32"
+    "yjs": "catalog:"
   },
   "devDependencies": {
     "@codemirror/commands": "6.11.0",
     "@codemirror/state": "6.5.0",
     "@codemirror/view": "6.38.6",
-    "fake-indexeddb": "6.2.5",
+    "fake-indexeddb": "catalog:",
     "happy-dom": "20.14.0",
     "obsidian": "1.13.1",
     "tsdown": "0.23.0"

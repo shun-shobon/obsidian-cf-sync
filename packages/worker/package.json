@@ -15,12 +15,12 @@
     "@cf-sync/protocol": "workspace:*",
     "hono": "4.13.7",
     "jose": "6.2.12",
-    "js-base64": "3.9.3",
-    "valibot": "1.5.0",
-    "yjs": "13.6.32"
+    "js-base64": "catalog:",
+    "valibot": "catalog:",
+    "yjs": "catalog:"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20260908.1",
+    "@cloudflare/workers-types": "catalog:",
     "wrangler": "4.129.1"
   }
 }

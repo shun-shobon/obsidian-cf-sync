@@ -13,3 +13,10 @@ allowBuilds:
 overrides:
   "@codemirror/state": "6.5.0"
   "@codemirror/view": "6.38.6"
+catalog:
+  "@cloudflare/workers-types": 5.20260908.1
+  fake-indexeddb: 6.2.5
+  js-base64: 3.9.3
+  lib0: 0.2.117
+  valibot: 1.5.0
+  yjs: 13.6.32

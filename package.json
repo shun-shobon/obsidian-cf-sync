@@ -20,13 +20,13 @@
   },
   "devDependencies": {
     "@cf-sync/protocol": "workspace:*",
-    "@cloudflare/workers-types": "5.20260908.1",
+    "@cloudflare/workers-types": "catalog:",
     "@tsconfig/node-lts": "24.0.1",
     "@tsconfig/strictest": "2.0.8",
     "@types/node": "^24.13.3",
     "esbuild": "0.28.1",
-    "fake-indexeddb": "6.2.5",
-    "js-base64": "3.9.3",
+    "fake-indexeddb": "catalog:",
+    "js-base64": "catalog:",
     "miniflare": "4.20260730.0",
     "oxfmt": "0.67.0",
     "oxlint": "1.82.0",
@@ -34,7 +34,7 @@
     "tsx": "4.23.13",
     "typescript": "7.0.2",
     "vitest": "5.0.0",
-    "yjs": "13.6.32"
+    "yjs": "catalog:"
   },
   "packageManager": "pnpm@12.3.4"
 }
