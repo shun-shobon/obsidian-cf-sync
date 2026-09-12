@@ -113,6 +113,9 @@ catalogs:
     fake-indexeddb:
       specifier: 6.2.5
       version: 6.2.5
+    hono:
+      specifier: 4.13.7
+      version: 4.13.7
     js-base64:
       specifier: 3.9.3
       version: 3.9.3
@@ -155,6 +158,9 @@ importers:
       fake-indexeddb:
         specifier: 'catalog:'
         version: 6.2.5
+      hono:
+        specifier: 'catalog:'
+        version: 4.13.7
       js-base64:
         specifier: 'catalog:'
         version: 3.9.3
@@ -248,7 +254,7 @@ importers:
         specifier: workspace:*
         version: link:../protocol
       hono:
-        specifier: 4.13.7
+        specifier: 'catalog:'
         version: 4.13.7
       jose:
         specifier: 6.2.12

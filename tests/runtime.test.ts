@@ -30,6 +30,7 @@ beforeAll(async () => {
     format: "esm",
     platform: "browser",
     target: "es2022",
+    external: ["cloudflare:workers"],
   });
   script = built.outputFiles[0]!.text;
 });
@@ -195,6 +196,13 @@ describe("Durable Object and R2 runtime integration", () => {
     });
     expect(uploaded.status, await uploaded.clone().text()).toBe(200);
     const blob = (await uploaded.json()) as BlobRef;
+    const downloaded = await request(mf, `/blobs/${key}`);
+    const downloadedBytes = new Uint8Array(await downloaded.arrayBuffer());
+
+    expect(downloaded.status).toBe(200);
+    expect(downloadedBytes.byteLength).toBe(bytes.byteLength);
+    expect(await digest(downloadedBytes)).toBe(hash);
+
     await apply(mf, {
       type: "create",
       opId: crypto.randomUUID(),
@@ -213,6 +221,49 @@ describe("Durable Object and R2 runtime integration", () => {
     expect(await digest(new Uint8Array(saved))).toBe(hash);
     const snapshot = (await (await request(mf, "/snapshot")).json()) as Snapshot;
     expect(snapshot.exclusions).toEqual(["assets"]);
+  });
+
+  it("streams JSON larger than the RPC value limit in both directions", async () => {
+    const { mf } = await start();
+    const content = "x".repeat(33 * 1024 * 1024);
+    const response = await request(mf, "/echo-json", { content });
+
+    expect(response.status).toBe(200);
+
+    const received = (await response.json()) as { content: string };
+
+    expect(received.content).toBe(content);
+  }, 30_000);
+
+  it("preserves application errors across RPC and continues processing", async () => {
+    const { mf } = await start();
+    const missing = await request(mf, `/files/${crypto.randomUUID()}`);
+
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toEqual({ error: "File not found" });
+
+    const snapshot = await request(mf, "/snapshot");
+
+    expect(snapshot.status).toBe(200);
+  });
+
+  it("serializes simultaneous RPC mutations without losing revisions or path ownership", async () => {
+    const { mf } = await start();
+    const operations: Operation[] = Array.from({ length: 8 }, () => ({
+      type: "create",
+      opId: crypto.randomUUID(),
+      fileId: crypto.randomUUID(),
+      path: "same.md",
+      content: { kind: "text", update: textUpdate("content") },
+    }));
+    const results = await Promise.all(operations.map((operation) => apply(mf, operation)));
+    const snapshotResponse = await request(mf, "/snapshot");
+    const snapshot = (await snapshotResponse.json()) as Snapshot;
+
+    expect(snapshot.revision).toBe(operations.length);
+    expect(snapshot.files).toHaveLength(operations.length);
+    expect(new Set(snapshot.files.map((file) => file.path)).size).toBe(operations.length);
+    expect(results.filter((result) => result.conflict)).toHaveLength(operations.length - 1);
   });
 
   it("consumes a ticket once and closes revoked device sockets", async () => {

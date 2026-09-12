@@ -4,13 +4,19 @@
 
 ## 認証と接続
 
-Accessは`/api/*`を保護する。WorkerはJWTの署名・issuer・audience・所有者を検証する。Account DOが端末とVaultの登録を管理し、Vault DOが同期状態を管理する。内部の端末識別ヘッダーはWorkerが生成し、クライアントの値をそのまま信頼しない。
+Accessは`/api/*`を保護する。WorkerはJWTの署名・issuer・audience・所有者を検証する。Account DOが端末とVaultの登録を管理し、Vault DOが同期状態を管理する。Workerは端末とVaultの登録を確認し、検証済みの識別子をDOのRPCメソッドへ渡す。DOでも端末失効を確認する。
 
 `/oauth/callback`は公開HTTPS中間ページから認可コードとstateをObsidianへ戻す。プラグインはPKCE verifierでコードを交換する。外部ブラウザとObsidianでCookieを共有する前提は置かない。
 
 `/ws`はAccessの通常ログインを通さず、WorkerとDOが接続券を検証する。接続券は端末・Vaultに紐づき、30秒間有効で一度だけ使える。接続後も最長15分で閉じ、認証済みAPIで新しい接続券を取得する。端末失効時は既存接続も閉じる。
 
 WebSocketはサーバーからの変更通知に使う。編集は250ms単位でHTTPへまとめ、通知を受けた端末はメタデータと本文を取得する。添付データをWebSocketには流さない。
+
+## WorkerとDOの内部通信
+
+公開APIはHonoで認証・入力検証・HTTP応答を扱い、Account DOとVault DOの型付きRPCメソッドを呼ぶ。端末失効のDO間通知もRPCを使う。WebSocketのUpgradeだけはDOの`fetch`へ渡す。
+
+編集データ・全文・スナップショット・添付はRPCのストリームで渡し、通常のRPCシリアライズ上限に制限されないようにする。登録・失効・保存競合などの業務エラーは種類とメッセージを結果に含め、公開APIでHTTPステータスへ変換する。
 
 ## HTTP API
 
@@ -50,6 +56,6 @@ WebSocketはサーバーからの変更通知に使う。編集は250ms単位で
 
 最新版は`vaults/<vaultId>/files/<path>`へ通常ファイルとして保存する。`staging/<vaultId>/<blobUUID>`は添付の内部保存先で、DOが参照する間は保持する。
 
-変更とdirty登録・alarm設定を永続化し、通常10秒後にR2へ反映する。HTTP処理とalarmを直列化し、古い反映処理が新しい変更を保存済み扱いにしない。移動は新しいパスへの書込み後に旧パスを消す。除外した既存ファイルはR2に残す。`r2Revision`はVaultの反映完了位置を示す。
+変更とdirty登録・alarm設定を永続化し、通常10秒後にR2へ反映する。VaultのRPC処理・WebSocket接続処理・alarmを直列化し、古い反映処理が新しい変更を保存済み扱いにしない。移動は新しいパスへの書込み後に旧パスを消す。除外した既存ファイルはR2に残す。`r2Revision`はVaultの反映完了位置を示す。
 
 R2はCRDT状態や履歴のバックアップではない。R2の直接編集を同期へ取り込む機能も持たない。

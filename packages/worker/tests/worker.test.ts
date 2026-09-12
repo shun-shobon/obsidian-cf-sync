@@ -1,4 +1,4 @@
-import { type Operation, type OperationResult, type Snapshot } from "@cf-sync/protocol";
+import { type Operation, type Snapshot } from "@cf-sync/protocol";
 import { Hono } from "hono";
 import { toUint8Array, fromUint8Array } from "js-base64";
 import { describe, expect, it } from "vitest";
@@ -9,6 +9,8 @@ import { Account } from "../src/infra/durable-objects/account";
 import { Vault } from "../src/infra/durable-objects/vault";
 import type { Env } from "../src/infra/env";
 import { onError } from "../src/infra/http/responses";
+import { jsonStream } from "../src/infra/rpc-json";
+import { unwrapRpcResult } from "../src/infra/rpc-result";
 
 class Storage {
   data = new Map<string, unknown>();
@@ -74,33 +76,19 @@ function setup() {
   let vault = new Vault(state, env);
   const vaultId = crypto.randomUUID();
   const deviceId = crypto.randomUUID();
-  const call = async (path: string, body?: unknown, method = "POST") => {
-    const init: RequestInit = {
-      method: "GET",
-      headers: { "X-Vault-Id": vaultId, "X-Device-Id": deviceId },
-    };
-
-    if (body !== undefined) {
-      init.method = method;
-      init.body = JSON.stringify(body);
-    }
-
-    return vault.fetch(new Request(`https://internal${path}`, init));
-  };
-  const operation = async (op: Operation) => {
-    const response = await call("/operations", op);
-    expect(response.status).toBe(200);
-    return response.json() as Promise<OperationResult>;
-  };
+  const operation = async (op: Operation) =>
+    unwrapRpcResult(await vault.applyOperation(vaultId, deviceId, jsonStream(op)));
   return {
     storage,
     objects,
-    call,
     snapshot: async () => {
-      const response = await call("/snapshot");
-
-      return response.json() as Promise<Snapshot>;
+      const result = unwrapRpcResult(await vault.snapshot(vaultId, deviceId));
+      return new Response(result).json() as Promise<Snapshot>;
     },
+    exclusions: async (paths: string[]) =>
+      unwrapRpcResult(await vault.setExclusions(vaultId, deviceId, paths)),
+    ticket: async () => unwrapRpcResult(await vault.issueTicket(vaultId, deviceId)),
+    revoke: async () => unwrapRpcResult(await vault.revokeDevice(deviceId)),
     operation,
     vaultId,
     deviceId,
@@ -222,9 +210,10 @@ describe("Vault durable synchronization", () => {
     const s = setup();
     await s.operation(create("folder/a.md", "keep"));
     await s.alarm();
-    await s.call("/exclusions", { exclusions: ["folder"] }, "PUT");
-    const rejected = await s.call("/operations", create("folder/b.md", "no"));
-    expect(rejected.status).toBe(409);
+    await s.exclusions(["folder"]);
+    await expect(s.operation(create("folder/b.md", "no"))).rejects.toMatchObject({
+      kind: "conflict",
+    });
     await s.alarm();
     expect([...s.objects.values()]).toEqual(["keep"]);
   });
@@ -252,7 +241,7 @@ describe("Vault durable synchronization", () => {
 
   it("rejects expired and reused websocket tickets before upgrade", async () => {
     const s = setup();
-    const issued = (await (await s.call("/tickets", {})).json()) as { ticket: string };
+    const issued = await s.ticket();
     const ticketKey = [...s.storage.data.keys()].find((key) => key.startsWith("ticket:"))!;
     const stored = await s.storage.get<{ deviceId: string; expiresAt: number }>(ticketKey);
     await s.storage.put(ticketKey, { ...stored, expiresAt: 0 });
@@ -291,7 +280,7 @@ it("fails closed without Access configuration or a signed assertion", async () =
   ).toBe(401);
 });
 
-describe("Durable Object HTTP routing", () => {
+describe("Durable Object RPC", () => {
   it.each([
     ["/snapshot", "POST"],
     ["/operations", "PUT"],
@@ -313,14 +302,8 @@ describe("Durable Object HTTP routing", () => {
 
   it("revokes without vault headers and rejects subsequent authenticated operations", async () => {
     const s = setup();
-    const revoked = await s.fetch(
-      new Request("https://internal/revoke", {
-        method: "POST",
-        body: JSON.stringify({ deviceId: s.deviceId }),
-      }),
-    );
-    expect(revoked.status).toBe(200);
-    expect((await s.call("/snapshot")).status).toBe(403);
+    await s.revoke();
+    await expect(s.snapshot()).rejects.toMatchObject({ kind: "forbidden" });
   });
 
   it("reads the latest metadata for every request", async () => {
@@ -331,29 +314,21 @@ describe("Durable Object HTTP routing", () => {
     expect((await s.snapshot()).revision).toBe(2);
   });
 
-  it("routes account devices and vaults with method and parameter validation", async () => {
+  it("registers and reads account devices and vaults through methods", async () => {
     const account = new Account(
       { storage: new Storage() } as unknown as DurableObjectState,
       {} as Env,
     );
     const device = { id: crypto.randomUUID(), name: "Laptop" };
-    const call = (path: string, method = "GET", body?: unknown) => {
-      const init: RequestInit = { method };
 
-      if (body !== undefined) {
-        init.body = JSON.stringify(body);
-      }
+    expect(unwrapRpcResult(await account.registerDevice(device))).toMatchObject(device);
+    expect(unwrapRpcResult(await account.device(device.id))).toMatchObject(device);
 
-      return account.fetch(new Request(`https://internal${path}`, init));
-    };
-    expect((await call("/devices", "POST", device)).status).toBe(200);
-    expect(await (await call(`/devices/${device.id}`)).json()).toMatchObject(device);
-    expect((await call(`/devices/${device.id}`, "PUT", {})).status).toBe(404);
-    expect((await call(`/devices/${device.id}/extra`)).status).toBe(404);
-    expect((await call("/devices/invalid")).status).toBe(400);
     const vault = { id: crypto.randomUUID(), name: "Notes" };
-    expect((await call("/vaults", "POST", vault)).status).toBe(200);
-    expect(await (await call(`/vaults/${vault.id}`)).json()).toEqual(vault);
-    expect((await call(`/vaults/${vault.id}`, "DELETE")).status).toBe(404);
+
+    expect(unwrapRpcResult(await account.createVault(vault))).toEqual(vault);
+    expect(unwrapRpcResult(await account.vault(vault.id))).toEqual(vault);
+    expect(unwrapRpcResult(await account.devices())).toHaveLength(1);
+    expect(unwrapRpcResult(await account.vaults())).toEqual([vault]);
   });
 });

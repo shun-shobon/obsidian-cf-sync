@@ -42,7 +42,12 @@ export class BlobStorage {
     }
   }
 
-  async upload(key: string, expected: string, request: Request): Promise<BlobRef> {
+  async upload(
+    key: string,
+    expected: string,
+    body: ReadableStream<Uint8Array> | null,
+    sizeHeader: string | null,
+  ): Promise<BlobRef> {
     const previous = await this.bucket.head(this.key(key));
 
     if (previous) {
@@ -53,22 +58,20 @@ export class BlobStorage {
       return { key, size: previous.size, digest: expected };
     }
 
-    if (!request.body) {
+    if (!body) {
       throw new ApplicationError("invalid-input", "Missing body");
     }
 
     const abort = new AbortController();
 
     try {
-      const sizeHeader = request.headers.get("X-Content-Size");
-
       if (sizeHeader === null) {
         throw new ApplicationError("length-required", "X-Content-Size required");
       }
 
       const length = v.parse(contentSizeSchema, sizeHeader);
       const stream = new FixedLengthStream(length);
-      const writing = request.body.pipeTo(stream.writable, { signal: abort.signal });
+      const writing = body.pipeTo(stream.writable, { signal: abort.signal });
       const [object] = await Promise.all([
         this.bucket.put(this.key(key), stream.readable, {
           sha256: expected,

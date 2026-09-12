@@ -1,16 +1,11 @@
 import { idSchema, operationSchema, pathSchema } from "@cf-sync/protocol";
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import * as v from "valibot";
 
-import type { VaultMeta } from "../../domain/vault-state";
-import { ApplyOperation } from "../../usecase/apply-operation";
-import { BlobStorage } from "../blob-storage";
-import type { VaultRepository } from "../vault-repository";
-import type { VaultSockets } from "../vault-sockets";
-
-import { notFound, onError } from "./responses";
-
-const revokeSchema = v.object({ deviceId: idSchema });
+import type { Vault } from "../durable-objects/vault";
+import type { Env } from "../env";
+import { jsonStream } from "../rpc-json";
+import { unwrapRpcResult } from "../rpc-result";
 
 const exclusionsSchema = v.object({
   exclusions: v.pipe(v.array(pathSchema), v.maxLength(1000)),
@@ -19,114 +14,113 @@ const exclusionsSchema = v.object({
 const digestSchema = v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/));
 
 type VaultContext = {
-  Variables: { meta: VaultMeta; deviceId: string; blobs: BlobStorage };
+  Bindings: Env;
+  Variables: {
+    vaultId: string;
+    deviceId: string;
+    vault: DurableObjectStub<Vault>;
+  };
 };
 
-export class VaultRoutes {
-  readonly app = new Hono<VaultContext>();
+export const vaultApiRoutes = new Hono<VaultContext>();
 
-  constructor(
-    private readonly repository: VaultRepository,
-    private readonly sockets: VaultSockets,
-    bucket: R2Bucket,
-  ) {
-    this.app.onError(onError);
+vaultApiRoutes.use("*", async (c, next) => {
+  const vaultId = v.parse(idSchema, c.req.param("vaultId"));
+  const deviceId = v.parse(idSchema, c.req.header("X-Device-Id"));
+  const account = c.env.ACCOUNT.getByName("owner");
+  const [device, vault] = await Promise.all([account.device(deviceId), account.vault(vaultId)]);
+  unwrapRpcResult(device);
+  unwrapRpcResult(vault);
 
-    this.app.notFound(notFound);
+  c.set("vaultId", vaultId);
+  c.set("deviceId", deviceId);
+  c.set("vault", c.env.VAULTS.getByName(vaultId));
+  await next();
+});
 
-    this.app.post("/revoke", async (c) => {
-      const { deviceId } = v.parse(revokeSchema, await c.req.json());
-      await sockets.revoke(deviceId);
+vaultApiRoutes.get("/snapshot", async (c) => {
+  const vault = c.get("vault");
+  const result = await vault.snapshot(c.get("vaultId"), c.get("deviceId"));
 
-      return c.json({ ok: true });
-    });
+  return new Response(unwrapRpcResult(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
 
-    this.app.use("*", async (c, next) => {
-      const vaultId = v.parse(idSchema, c.req.header("X-Vault-Id"));
-      c.set("meta", await repository.initialize(vaultId));
-      c.set("blobs", new BlobStorage(bucket, vaultId));
-      await next();
-    });
+vaultApiRoutes.post("/operations", async (c) => {
+  const operation = v.parse(operationSchema, await c.req.json());
+  const vault = c.get("vault");
+  const result = await vault.applyOperation(
+    c.get("vaultId"),
+    c.get("deviceId"),
+    jsonStream(operation),
+  );
 
-    this.app.get("/ws", async (c) => {
-      const response = await sockets.connect(c.req.raw);
-      await repository.schedule();
+  return c.json(unwrapRpcResult(result));
+});
 
-      return response;
-    });
+vaultApiRoutes.get("/files/:id", async (c) => {
+  const id = v.parse(idSchema, c.req.param("id"));
+  const vault = c.get("vault");
+  const result = await vault.document(c.get("vaultId"), c.get("deviceId"), id);
 
-    this.app.use("*", async (c, next) => {
-      const deviceId = v.parse(idSchema, c.req.header("X-Device-Id"));
-      await sockets.assertDeviceActive(deviceId);
-      c.set("deviceId", deviceId);
-      await next();
-    });
+  return new Response(unwrapRpcResult(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
 
-    this.registerRoutes();
+vaultApiRoutes.put("/exclusions", async (c) => {
+  const { exclusions } = v.parse(exclusionsSchema, await c.req.json());
+  const vault = c.get("vault");
+  const result = await vault.setExclusions(c.get("vaultId"), c.get("deviceId"), exclusions);
+
+  return new Response(unwrapRpcResult(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+vaultApiRoutes.post("/tickets", async (c) => {
+  const vaultId = c.get("vaultId");
+  const vault = c.get("vault");
+  const result = await vault.issueTicket(vaultId, c.get("deviceId"));
+  const ticket = unwrapRpcResult(result);
+  const url = new URL("/ws", c.req.url);
+
+  if (url.protocol === "https:") {
+    url.protocol = "wss:";
+  } else {
+    url.protocol = "ws:";
   }
 
-  private registerRoutes(): void {
-    this.app.get("/snapshot", (c) => this.snapshot(c));
+  url.searchParams.set("vault", vaultId);
+  url.searchParams.set("ticket", ticket.ticket);
+  c.header("Cache-Control", "no-store");
 
-    this.app.post("/operations", async (c) => {
-      const operations = new ApplyOperation(this.repository, this.sockets, c.get("blobs"));
+  return c.json({ url: url.href, expiresAt: ticket.expiresAt });
+});
 
-      const operation = v.parse(operationSchema, await c.req.json());
-      const result = await operations.execute(operation);
+vaultApiRoutes.get("/blobs/:id", async (c) => {
+  const id = v.parse(idSchema, c.req.param("id"));
+  const vault = c.get("vault");
+  const result = await vault.downloadBlob(c.get("vaultId"), c.get("deviceId"), id);
+  const body = unwrapRpcResult(result);
 
-      return c.json(result);
-    });
+  return new Response(body, { headers: { "Content-Type": "application/octet-stream" } });
+});
 
-    this.app.get("/files/:id", async (c) => {
-      const id = v.parse(idSchema, c.req.param("id"));
-      const stored = await this.repository.file(id);
-      const content = await this.repository.content(stored);
+vaultApiRoutes.put("/blobs/:id", async (c) => {
+  const key = v.parse(idSchema, c.req.param("id"));
+  const digest = v.parse(digestSchema, c.req.header("X-Content-Digest"));
+  const size = c.req.raw.headers.get("X-Content-Size");
+  const vault = c.get("vault");
+  const result = await vault.uploadBlob(
+    c.get("vaultId"),
+    c.get("deviceId"),
+    key,
+    digest,
+    c.req.raw.body,
+    size,
+  );
 
-      return c.json({ file: stored.file, content });
-    });
-
-    this.app.put("/exclusions", (c) => this.exclusions(c));
-
-    this.app.post("/tickets", async (c) => {
-      const ticket = await this.sockets.issueTicket(c.get("deviceId"));
-      await this.repository.schedule();
-
-      return c.json(ticket);
-    });
-
-    this.app.get("/blobs/:id", async (c) => {
-      const id = v.parse(idSchema, c.req.param("id"));
-      const object = await c.get("blobs").get(id);
-
-      return new Response(object.body, { headers: { "Content-Type": "application/octet-stream" } });
-    });
-
-    this.app.put("/blobs/:id", (c) => this.uploadBlob(c));
-  }
-
-  private async snapshot(c: Context<VaultContext>): Promise<Response> {
-    const stored = await this.repository.files();
-    const files = stored.map((item) => item.file);
-
-    return c.json({ ...c.get("meta"), files });
-  }
-
-  private async exclusions(c: Context<VaultContext>): Promise<Response> {
-    const { exclusions } = v.parse(exclusionsSchema, await c.req.json());
-    const meta = c.get("meta");
-    await this.repository.setExclusions(meta, exclusions);
-    await this.repository.schedule();
-    this.sockets.broadcast({ type: "settings", revision: meta.revision });
-
-    return this.snapshot(c);
-  }
-
-  private async uploadBlob(c: Context<VaultContext>): Promise<Response> {
-    const expected = v.parse(digestSchema, c.req.header("X-Content-Digest"));
-    const key = v.parse(idSchema, c.req.param("id"));
-    const blob = await c.get("blobs").upload(key, expected, c.req.raw);
-    await this.repository.schedule();
-
-    return c.json(blob);
-  }
-}
+  return c.json(unwrapRpcResult(result));
+});

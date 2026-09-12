@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@cf-sync/protocol": "workspace:*",
-    "hono": "4.13.7",
+    "hono": "catalog:",
     "jose": "6.2.12",
     "js-base64": "catalog:",
     "valibot": "catalog:",

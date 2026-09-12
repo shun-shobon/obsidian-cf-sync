@@ -26,6 +26,7 @@
     "@types/node": "^24.13.3",
     "esbuild": "0.28.1",
     "fake-indexeddb": "catalog:",
+    "hono": "catalog:",
     "js-base64": "catalog:",
     "miniflare": "4.20260730.0",
     "oxfmt": "0.67.0",

@@ -1,18 +1,15 @@
 import type { DeviceConnections } from "../usecase/ports";
 
+import type { Vault } from "./durable-objects/vault";
+import { unwrapRpcResult } from "./rpc-result";
+
 export class DurableObjectDeviceConnections implements DeviceConnections {
-  constructor(private readonly vaults: DurableObjectNamespace) {}
+  constructor(private readonly vaults: DurableObjectNamespace<Vault>) {}
 
   async revoke(vaultId: string, deviceId: string): Promise<void> {
-    const response = await this.vaults
-      .get(this.vaults.idFromName(vaultId))
-      .fetch("https://internal/revoke", {
-        method: "POST",
-        body: JSON.stringify({ deviceId }),
-      });
+    const vault = this.vaults.getByName(vaultId);
+    const result = await vault.revokeDevice(deviceId);
 
-    if (!response.ok) {
-      throw new Error("Could not revoke vault connections");
-    }
+    unwrapRpcResult(result);
   }
 }

@@ -15,18 +15,20 @@ const statusByKind: Record<ErrorKind, ContentfulStatusCode> = {
   unavailable: 503,
 };
 
-export const onError: ErrorHandler = (error, c) => {
+export function errorResponse(error: unknown): Response {
   if (error instanceof ApplicationError) {
-    return c.json({ error: error.message }, statusByKind[error.kind]);
+    return Response.json({ error: error.message }, { status: statusByKind[error.kind] });
   }
 
   if (error instanceof v.ValiError) {
-    return c.json({ error: error.message }, 400);
+    return Response.json({ error: error.message }, { status: 400 });
   }
 
   console.error(error);
 
-  return c.json({ error: "Internal server error" }, 500);
-};
+  return Response.json({ error: "Internal server error" }, { status: 500 });
+}
+
+export const onError: ErrorHandler = (error) => errorResponse(error);
 
 export const notFound: NotFoundHandler = (c) => c.json({ error: "Not found" }, 404);

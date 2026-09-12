@@ -2,66 +2,59 @@ import { idSchema } from "@cf-sync/protocol";
 import { Hono } from "hono";
 import * as v from "valibot";
 
-import { ApplicationError } from "../../domain/errors";
-import type { DeviceConnections } from "../../usecase/ports";
-import { revokeDevice } from "../../usecase/revoke-device";
-import type { AccountRepository } from "../account-repository";
+import type { Env } from "../env";
+import { unwrapRpcResult } from "../rpc-result";
 
-import { notFound, onError } from "./responses";
-
-const named = v.object({
+const namedSchema = v.object({
   id: idSchema,
   name: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(200)),
 });
 
-export function accountRoutes(repository: AccountRepository, connections: DeviceConnections) {
-  const app = new Hono();
-  app.onError(onError);
-  app.notFound(notFound);
+export const accountApiRoutes = new Hono<{ Bindings: Env }>();
 
-  app.get("/devices", async (c) => c.json(await repository.devices()));
+accountApiRoutes.get("/devices", async (c) => {
+  const account = c.env.ACCOUNT.getByName("owner");
+  const result = await account.devices();
 
-  app.post("/devices", async (c) => {
-    const input = v.parse(named, await c.req.json());
-    const device = await repository.registerDevice(input);
+  return c.json(unwrapRpcResult(result));
+});
 
-    return c.json(device);
-  });
+accountApiRoutes.post("/devices", async (c) => {
+  const input = v.parse(namedSchema, await c.req.json());
+  const account = c.env.ACCOUNT.getByName("owner");
+  const result = await account.registerDevice(input);
 
-  app.get("/devices/:id", async (c) => {
-    const id = v.parse(idSchema, c.req.param("id"));
-    const device = await repository.device(id);
+  return c.json(unwrapRpcResult(result));
+});
 
-    if (device.revoked) {
-      throw new ApplicationError("forbidden", "Device revoked");
-    }
+accountApiRoutes.get("/devices/:id", async (c) => {
+  const id = v.parse(idSchema, c.req.param("id"));
+  const account = c.env.ACCOUNT.getByName("owner");
+  const result = await account.device(id);
 
-    return c.json(device);
-  });
+  return c.json(unwrapRpcResult(result));
+});
 
-  app.delete("/devices/:id", async (c) => {
-    const id = v.parse(idSchema, c.req.param("id"));
-    const device = await repository.device(id);
-    await revokeDevice(device, repository, connections);
+accountApiRoutes.delete("/devices/:id", async (c) => {
+  const id = v.parse(idSchema, c.req.param("id"));
+  const account = c.env.ACCOUNT.getByName("owner");
+  const result = await account.revokeDevice(id);
+  unwrapRpcResult(result);
 
-    return c.json({ ok: true });
-  });
+  return c.json({ ok: true });
+});
 
-  app.get("/vaults", async (c) => c.json(await repository.vaults()));
+accountApiRoutes.get("/vaults", async (c) => {
+  const account = c.env.ACCOUNT.getByName("owner");
+  const result = await account.vaults();
 
-  app.post("/vaults", async (c) => {
-    const vault = v.parse(named, await c.req.json());
-    await repository.saveVault(vault);
+  return c.json(unwrapRpcResult(result));
+});
 
-    return c.json(vault);
-  });
+accountApiRoutes.post("/vaults", async (c) => {
+  const input = v.parse(namedSchema, await c.req.json());
+  const account = c.env.ACCOUNT.getByName("owner");
+  const result = await account.createVault(input);
 
-  app.get("/vaults/:id", async (c) => {
-    const id = v.parse(idSchema, c.req.param("id"));
-    const vault = await repository.vault(id);
-
-    return c.json(vault);
-  });
-
-  return app;
-}
+  return c.json(unwrapRpcResult(result));
+});

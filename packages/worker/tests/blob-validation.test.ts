@@ -17,18 +17,8 @@ function createStorage() {
   return new BlobStorage(bucket, crypto.randomUUID());
 }
 
-function request(size?: string) {
-  const headers = new Headers();
-
-  if (size !== undefined) {
-    headers.set("X-Content-Size", size);
-  }
-
-  return new Request("https://test/blob", {
-    method: "PUT",
-    headers,
-    body: new Uint8Array(),
-  });
+function body() {
+  return new Blob([]).stream();
 }
 
 afterEach(() => {
@@ -38,7 +28,7 @@ afterEach(() => {
 
 describe("blob size validation", () => {
   it("distinguishes a missing size header from an invalid value", async () => {
-    await expect(createStorage().upload("blob", emptyDigest, request())).rejects.toMatchObject({
+    await expect(createStorage().upload("blob", emptyDigest, body(), null)).rejects.toMatchObject({
       kind: "length-required",
     });
   });
@@ -48,11 +38,11 @@ describe("blob size validation", () => {
     async (size) => {
       vi.spyOn(console, "error").mockImplementation(() => {});
 
-      await expect(
-        createStorage().upload("blob", emptyDigest, request(size)),
-      ).rejects.toMatchObject({
-        kind: "invalid-input",
-      });
+      await expect(createStorage().upload("blob", emptyDigest, body(), size)).rejects.toMatchObject(
+        {
+          kind: "invalid-input",
+        },
+      );
     },
   );
 
@@ -66,7 +56,7 @@ describe("blob size validation", () => {
 
     vi.stubGlobal("FixedLengthStream", EmptyStream);
 
-    const result = await createStorage().upload("blob", emptyDigest, request(size));
+    const result = await createStorage().upload("blob", emptyDigest, body(), size);
 
     expect(result.size).toBe(0);
   });
