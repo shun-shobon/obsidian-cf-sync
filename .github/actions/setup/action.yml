@@ -1,0 +1,8 @@
+name: Setup
+description: Install mise tools and workspace dependencies
+runs:
+  using: composite
+  steps:
+    - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+    - run: pnpm install --frozen-lockfile
+      shell: bash
