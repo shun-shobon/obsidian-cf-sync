@@ -1,6 +1,6 @@
 # 通信と永続化
 
-通信データの正本は[`src/shared/protocol.ts`](../src/shared/protocol.ts)のZodスキーマとする。Worker・プラグインの双方で入力を検証する。
+通信データの正本は[`packages/protocol/src`](../packages/protocol/src)のZodスキーマとする。Worker・プラグインの双方で入力を検証する。
 
 ## 認証と接続
 

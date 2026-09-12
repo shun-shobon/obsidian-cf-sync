@@ -112,38 +112,13 @@ overrides:
 importers:
 
   .:
-    dependencies:
-      hono:
-        specifier: 4.13.7
-        version: 4.13.7
-      jose:
-        specifier: 6.2.12
-        version: 6.2.12
-      y-codemirror.next:
-        specifier: 0.3.6
-        version: 0.3.6(@codemirror/state@6.5.0)(@codemirror/view@6.38.6)(yjs@13.6.32)
-      y-protocols:
-        specifier: 1.0.7
-        version: 1.0.7(yjs@13.6.32)
-      yjs:
-        specifier: 13.6.32
-        version: 13.6.32
-      zod:
-        specifier: 4.5.4
-        version: 4.5.4
     devDependencies:
+      '@cf-sync/protocol':
+        specifier: workspace:*
+        version: link:packages/protocol
       '@cloudflare/workers-types':
         specifier: 5.20260908.1
         version: 5.20260908.1
-      '@codemirror/commands':
-        specifier: 6.11.0
-        version: 6.11.0
-      '@codemirror/state':
-        specifier: 6.5.0
-        version: 6.5.0
-      '@codemirror/view':
-        specifier: 6.38.6
-        version: 6.38.6
       '@tsconfig/node-lts':
         specifier: 24.0.1
         version: 24.0.1
@@ -159,15 +134,9 @@ importers:
       fake-indexeddb:
         specifier: 6.2.5
         version: 6.2.5
-      happy-dom:
-        specifier: 20.14.0
-        version: 20.14.0
       miniflare:
         specifier: 4.20260730.0
         version: 4.20260730.0
-      obsidian:
-        specifier: 1.13.1
-        version: 1.13.1(@codemirror/state@6.5.0)(@codemirror/view@6.38.6)
       oxfmt:
         specifier: 0.67.0
         version: 0.67.0
@@ -177,9 +146,6 @@ importers:
       oxlint-tsgolint:
         specifier: 7.0.2001
         version: 7.0.2001
-      tsdown:
-        specifier: 0.23.0
-        version: 0.23.0(tsx@4.23.13)(typescript@7.0.2)
       tsx:
         specifier: 4.23.13
         version: 4.23.13
@@ -189,6 +155,77 @@ importers:
       vitest:
         specifier: 5.0.0
         version: 5.0.0(@types/node@24.13.3)(happy-dom@20.14.0)(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.1)(tsx@4.23.13))
+      yjs:
+        specifier: 13.6.32
+        version: 13.6.32
+
+  packages/obsidian-plugin:
+    dependencies:
+      '@cf-sync/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      y-codemirror.next:
+        specifier: 0.3.6
+        version: 0.3.6(@codemirror/state@6.5.0)(@codemirror/view@6.38.6)(yjs@13.6.32)
+      y-protocols:
+        specifier: 1.0.7
+        version: 1.0.7(yjs@13.6.32)
+      yjs:
+        specifier: 13.6.32
+        version: 13.6.32
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
+    devDependencies:
+      '@codemirror/commands':
+        specifier: 6.11.0
+        version: 6.11.0
+      '@codemirror/state':
+        specifier: 6.5.0
+        version: 6.5.0
+      '@codemirror/view':
+        specifier: 6.38.6
+        version: 6.38.6
+      fake-indexeddb:
+        specifier: 6.2.5
+        version: 6.2.5
+      happy-dom:
+        specifier: 20.14.0
+        version: 20.14.0
+      obsidian:
+        specifier: 1.13.1
+        version: 1.13.1(@codemirror/state@6.5.0)(@codemirror/view@6.38.6)
+      tsdown:
+        specifier: 0.23.0
+        version: 0.23.0(tsx@4.23.13)(typescript@7.0.2)
+
+  packages/protocol:
+    dependencies:
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
+
+  packages/worker:
+    dependencies:
+      '@cf-sync/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      hono:
+        specifier: 4.13.7
+        version: 4.13.7
+      jose:
+        specifier: 6.2.12
+        version: 6.2.12
+      yjs:
+        specifier: 13.6.32
+        version: 13.6.32
+      zod:
+        specifier: 4.5.4
+        version: 4.5.4
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: 5.20260908.1
+        version: 5.20260908.1
       wrangler:
         specifier: 4.129.1
         version: 4.129.1(@cloudflare/workers-types@5.20260908.1)

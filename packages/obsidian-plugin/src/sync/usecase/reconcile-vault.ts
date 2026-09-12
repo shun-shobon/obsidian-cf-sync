@@ -1,0 +1,85 @@
+import { digest, isExcluded, type Snapshot } from "@cf-sync/protocol";
+
+import type { LocalFile } from "../domain/sync-state";
+import type { VaultPort } from "../ports/vault-port";
+import type { Documents } from "../service/documents";
+import type { SyncState } from "../service/sync-state";
+
+import type { LocalChanges } from "./local-changes";
+import type { ReceiveFile, ReconcileContext } from "./receive-file";
+
+export class ReconcileVault {
+  constructor(
+    private readonly state: SyncState,
+    private readonly vault: VaultPort,
+    private readonly documents: Documents,
+    private readonly changes: LocalChanges,
+    private readonly receive: ReceiveFile,
+    private readonly confirmInitial: (paths: string[]) => Promise<boolean>,
+  ) {}
+
+  async initialize(snapshot: Snapshot): Promise<boolean> {
+    this.state.data.exclusions = snapshot.exclusions;
+    if (this.state.data.initialized) return true;
+
+    const remoteByPath = new Map(snapshot.files.map((file) => [file.path, file]));
+    const collisions = this.state.data.files.filter((local) => {
+      const remote = remoteByPath.get(local.path);
+      return remote && remote.digest !== local.digest;
+    });
+    if (collisions.length && !(await this.confirmInitial(collisions.map((file) => file.path)))) {
+      return false;
+    }
+
+    for (const local of this.state.data.files) {
+      const remote = remoteByPath.get(local.path);
+      if (!remote || remote.digest !== local.digest) continue;
+      this.state.data.pending = this.state.data.pending.filter((op) => op.fileId !== local.id);
+      this.state.data.files = this.state.data.files.filter((file) => file.id !== local.id);
+      this.documents.remove(local.id);
+      await this.receive.run(remote);
+    }
+    this.state.data.initialized = true;
+    await this.state.persist();
+    return true;
+  }
+
+  async run(snapshot: Snapshot): Promise<void> {
+    const context: ReconcileContext = {
+      paths: new Set(await this.vault.list()),
+      byId: new Map(this.state.data.files.map((file) => [file.id, file])),
+      byPath: new Map(this.state.data.files.map((file) => [file.path, file])),
+    };
+    const pendingIds = new Set(this.state.data.pending.map((op) => op.fileId));
+    const remoteIds = new Set(snapshot.files.map((file) => file.id));
+    for (const remote of snapshot.files) {
+      if (isExcluded(remote.path, snapshot.exclusions) || pendingIds.has(remote.id)) continue;
+      await this.receive.run(remote, undefined, context);
+    }
+    for (const local of this.state.data.files) {
+      if (
+        remoteIds.has(local.id) ||
+        isExcluded(local.path, snapshot.exclusions) ||
+        pendingIds.has(local.id)
+      )
+        continue;
+      await this.removeDeleted(local, context.paths);
+    }
+    this.state.data.revision = snapshot.revision;
+    this.state.data.r2Revision = snapshot.r2Revision;
+    await this.state.persist();
+  }
+
+  private async removeDeleted(local: LocalFile, paths: Set<string>): Promise<void> {
+    if (paths.has(local.path)) {
+      if ((await digest(await this.vault.read(local.path))) !== local.digest) {
+        await this.changes.capture(local.path);
+        return;
+      }
+      await this.vault.remove(local.path);
+    }
+    this.state.data.files = this.state.data.files.filter((file) => file.id !== local.id);
+    this.documents.remove(local.id);
+    await this.state.store.delete(`doc:${local.id}`);
+  }
+}

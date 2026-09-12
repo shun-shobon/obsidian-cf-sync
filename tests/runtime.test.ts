@@ -3,21 +3,22 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { build } from "esbuild";
-import { Miniflare } from "miniflare";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import * as Y from "yjs";
-
 import {
   digest,
   fromBase64,
   toBase64,
   type Operation,
-  type OperationResult,
   type Snapshot,
   type DocumentResponse,
   type BlobRef,
-} from "../src/shared/protocol";
+} from "@cf-sync/protocol";
+import { build } from "esbuild";
+import { Miniflare } from "miniflare";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import * as Y from "yjs";
+
+import { apply, deviceId, document, request, vaultId } from "./helpers/runtime-api";
+import { createRuntimeClient } from "./helpers/runtime-client";
 
 let script: string;
 beforeAll(async () => {
@@ -55,35 +56,12 @@ async function start(folder?: string) {
   runtimes.push(mf);
   return { mf, storage };
 }
-const vaultId = crypto.randomUUID(),
-  deviceId = crypto.randomUUID();
-async function request(
-  mf: Miniflare,
-  path: string,
-  body?: unknown,
-  method = body === undefined ? "GET" : "POST",
-) {
-  return mf.dispatchFetch(`https://test${path}`, {
-    method,
-    headers: { "X-Vault-Id": vaultId, "X-Device-Id": deviceId, "Content-Type": "application/json" },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-}
 function textUpdate(text: string) {
   const doc = new Y.Doc();
   doc.getText("content").insert(0, text);
   const update = toBase64(Y.encodeStateAsUpdate(doc));
   doc.destroy();
   return update;
-}
-async function apply(mf: Miniflare, operation: Operation) {
-  const response = await request(mf, "/operations", operation);
-  expect(response.status, await response.clone().text()).toBe(200);
-  return (await response.json()) as OperationResult;
-}
-async function document(mf: Miniflare, id: string) {
-  const response = await request(mf, `/files/${id}`);
-  return (await response.json()) as DocumentResponse;
 }
 function plain(content: DocumentResponse) {
   if (content.content.kind !== "text") throw new Error("not text");
@@ -241,101 +219,9 @@ describe("Durable Object and R2 runtime integration", () => {
 
 describe("client engine against the real DO", () => {
   it("converges offline edits through HTTP and websocket notifications", async () => {
-    const { SyncEngine } = await import("../src/plugin/sync/engine");
-    const { IndexedDbStore } = await import("../src/plugin/sync/store");
     const { mf } = await start();
-    function client(initial: Record<string, string>) {
-      const files = new Map(
-        Object.entries(initial).map(([path, text]) => [path, new TextEncoder().encode(text)]),
-      );
-      const api: import("../src/plugin/sync/types").ApiPort = {
-        async snapshot() {
-          return (await (await request(mf, "/snapshot")).json()) as Snapshot;
-        },
-        async document(id) {
-          return document(mf, id);
-        },
-        async operate(op) {
-          return apply(mf, op);
-        },
-        async upload(key, bytes, hash) {
-          const result = await mf.dispatchFetch(`https://test/blobs/${key}`, {
-            method: "PUT",
-            headers: {
-              "X-Vault-Id": vaultId,
-              "X-Device-Id": deviceId,
-              "X-Content-Digest": hash,
-              "X-Content-Size": String(bytes.length),
-            },
-            body: bytes,
-          });
-          if (!result.ok) throw new Error(await result.text());
-          return (await result.json()) as BlobRef;
-        },
-        async download(ref) {
-          return new Uint8Array(await (await request(mf, `/blobs/${ref.key}`)).arrayBuffer());
-        },
-        async connect(onMessage, onClose) {
-          const ticket = (await (await request(mf, "/tickets", {})).json()) as { ticket: string };
-          const response = await mf.dispatchFetch(`https://test/ws?ticket=${ticket.ticket}`, {
-            headers: { "X-Vault-Id": vaultId, Upgrade: "websocket" },
-          });
-          const socket = response.webSocket!;
-          socket.accept();
-          socket.addEventListener("message", (event) => {
-            if (typeof event.data !== "string") throw new Error("Expected JSON message");
-            onMessage(JSON.parse(event.data) as import("../src/shared/protocol").ServerMessage);
-          });
-          socket.addEventListener("close", onClose);
-          return { close: () => socket.close() };
-        },
-      };
-      const engine = new SyncEngine({
-        vault: {
-          async list() {
-            return [...files.keys()];
-          },
-          async read(path) {
-            const bytes = files.get(path);
-            if (!bytes) throw new Error(`Missing ${path}`);
-            return bytes;
-          },
-          async write(path, bytes) {
-            files.set(path, new Uint8Array(bytes));
-          },
-          async remove(path) {
-            files.delete(path);
-          },
-          async rename(oldPath, newPath) {
-            const value = files.get(oldPath);
-            if (!value) throw new Error("Missing rename");
-            files.set(newPath, value);
-            files.delete(oldPath);
-          },
-          async writeIfUnchanged(path, expected, bytes) {
-            const current = files.get(path);
-            if (
-              expected === undefined
-                ? current !== undefined
-                : !current ||
-                  current.length !== expected.length ||
-                  !current.every((byte, index) => byte === expected[index])
-            )
-              return false;
-            files.set(path, new Uint8Array(bytes));
-            return true;
-          },
-        },
-        api,
-        store: new IndexedDbStore(`runtime-${crypto.randomUUID()}`),
-        onStatus: () => {},
-        onConflict: () => {},
-        confirmInitial: async () => true,
-      });
-      return { engine, text: (path: string) => new TextDecoder().decode(files.get(path)) };
-    }
-    const left = client({ "note.md": "base" }),
-      right = client({});
+    const left = createRuntimeClient(mf, { "note.md": "base" }),
+      right = createRuntimeClient(mf, {});
     try {
       await left.engine.start();
       await right.engine.start();

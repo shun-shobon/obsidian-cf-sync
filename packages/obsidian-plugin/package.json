@@ -1,0 +1,28 @@
+{
+  "name": "@cf-sync/obsidian-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "tsdown && node scripts/package.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cf-sync/protocol": "workspace:*",
+    "y-codemirror.next": "0.3.6",
+    "y-protocols": "1.0.7",
+    "yjs": "13.6.32",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@codemirror/commands": "6.11.0",
+    "@codemirror/state": "6.5.0",
+    "@codemirror/view": "6.38.6",
+    "fake-indexeddb": "6.2.5",
+    "happy-dom": "20.14.0",
+    "obsidian": "1.13.1",
+    "tsdown": "0.23.0"
+  }
+}

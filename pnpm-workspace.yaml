@@ -1,3 +1,5 @@
+packages:
+  - packages/*
 minimumReleaseAge: 1440
 saveExact: true
 strictDepBuilds: true

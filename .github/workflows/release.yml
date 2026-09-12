@@ -18,11 +18,11 @@ jobs:
       - run: mise exec -- pnpm test
       - run: mise exec -- pnpm build
       - name: Check tag matches manifest
-        run: node --input-type=module -e 'import fs from "node:fs"; if(JSON.parse(fs.readFileSync("manifest.json")).version !== process.env.RELEASE_TAG) process.exit(1)'
+        run: node --input-type=module -e 'import fs from "node:fs"; if(JSON.parse(fs.readFileSync("packages/obsidian-plugin/manifest.json")).version !== process.env.RELEASE_TAG) process.exit(1)'
         env:
           RELEASE_TAG: ${{ github.ref_name }}
       - name: Create release
-        run: gh release create "$RELEASE_TAG" dist/main.js dist/manifest.json --verify-tag --generate-notes
+        run: gh release create "$RELEASE_TAG" packages/obsidian-plugin/dist/main.js packages/obsidian-plugin/dist/manifest.json --verify-tag --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
