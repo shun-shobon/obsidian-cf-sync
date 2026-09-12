@@ -51,7 +51,18 @@ export class Vault extends DurableObject<Env> {
       const blobs = new BlobStorage(this.env.BUCKET, vaultId);
       const operations = new ApplyOperation(this.repository, this.sockets, blobs);
 
-      return operations.execute(operation);
+      const result = await operations.execute(operation);
+      console.info({
+        event: "sync.operation.completed",
+        vaultId,
+        deviceId,
+        operationId: operation.opId,
+        operationType: operation.type,
+        revision: result.revision,
+        conflict: result.conflict,
+      });
+
+      return result;
     });
   }
 
@@ -162,6 +173,7 @@ export class Vault extends DurableObject<Env> {
 
   override async webSocketClose(ws: WebSocket, code: number): Promise<void> {
     ws.close(code);
+    console.info({ event: "websocket.closed", code });
   }
 
   private execute<T>(

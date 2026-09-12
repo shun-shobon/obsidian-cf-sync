@@ -15,6 +15,8 @@ apiRoutes.notFound(notFound);
 
 apiRoutes.use("*", async (c, next) => {
   await authenticate(c.req.raw, c.env);
+  console.info({ event: "access.authenticated" });
+
   await next();
 });
 

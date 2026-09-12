@@ -46,6 +46,12 @@ export class FlushVault {
     await this.deleteFiles(meta, files, paths);
     await this.repository.markFlushed(meta, paths);
     this.sockets.broadcast({ type: "r2", revision: meta.r2Revision });
+    console.info({
+      event: "r2.flush.completed",
+      vaultId: meta.vaultId,
+      revision: meta.r2Revision,
+      pathCount: paths.length,
+    });
   }
 
   private async collectBlobs(): Promise<void> {

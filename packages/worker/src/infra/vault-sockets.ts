@@ -62,6 +62,7 @@ export class VaultSockets {
 
     const pair = new WebSocketPair();
     this.state.acceptWebSocket(pair[1], [ticket.deviceId]);
+    console.info({ event: "websocket.connected", deviceId: ticket.deviceId });
 
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
@@ -77,6 +78,7 @@ export class VaultSockets {
       try {
         ws.send(data);
       } catch {
+        console.warn({ event: "websocket.notification.failed", messageType: message.type });
         ws.close(1011, "Notification failed");
       }
     }

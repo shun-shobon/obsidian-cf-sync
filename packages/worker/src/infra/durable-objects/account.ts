@@ -24,7 +24,12 @@ export class Account extends DurableObject<Env> {
   }
 
   registerDevice(input: { id: string; name: string }): Promise<RpcResult<Device>> {
-    return rpcResult(() => this.repository.registerDevice(input));
+    return rpcResult(async () => {
+      const device = await this.repository.registerDevice(input);
+      console.info({ event: "device.registered", deviceId: device.id });
+
+      return device;
+    });
   }
 
   device(id: string): Promise<RpcResult<Device>> {
@@ -43,6 +48,7 @@ export class Account extends DurableObject<Env> {
     return rpcResult(async () => {
       const device = await this.repository.device(id);
       await revokeDevice(device, this.repository, this.connections);
+      console.info({ event: "device.revoked", deviceId: id });
     });
   }
 
@@ -53,6 +59,7 @@ export class Account extends DurableObject<Env> {
   createVault(input: VaultInfo): Promise<RpcResult<VaultInfo>> {
     return rpcResult(async () => {
       await this.repository.saveVault(input);
+      console.info({ event: "vault.created", vaultId: input.id });
 
       return input;
     });

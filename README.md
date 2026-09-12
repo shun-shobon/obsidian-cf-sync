@@ -43,7 +43,7 @@ pnpm build:worker
 
 ## サーバーの準備
 
-1. CloudflareでR2を有効にし、`packages/worker/wrangler.jsonc`の`bucket_name`を自分のバケット名へ変更します。新規作成には`pnpm --filter @cf-sync/worker exec wrangler r2 bucket create <バケット名>`を使います。
+1. CloudflareでR2を有効にし、`packages/worker/wrangler.toml`の`bucket_name`を自分のバケット名へ変更します。新規作成には`pnpm --filter @cf-sync/worker exec wrangler r2 bucket create <バケット名>`を使います。
 2. 自分のHTTPSホスト名をWorkerのカスタムドメインへ割り当てます。プラグインにはパスを含まないこのオリジンを設定します。
 3. Accessのself-hosted applicationで同期APIの`/api/*`を保護し、自分のメールアドレスだけを許可します。Managed OAuthを有効にします。
 4. OAuthの許可リダイレクトURIを`https://<ホスト名>/oauth/callback`に設定します。public clientのDynamic Client RegistrationとPKCEによる認可コード交換を利用します。未認証の`/api`へのリクエストが401を返し、`WWW-Authenticate`に`resource_metadata`が含まれることを確認します。プラグインはそのURLの`authorization_servers`からAccessの認可サーバーを発見します。Worker直下に認可サーバーのメタデータを置いたり、そのパスをAccessの保護対象へ追加したりする必要はありません。
@@ -66,6 +66,8 @@ pnpm deploy
 ```
 
 DOはSQLiteバックエンドで作成されます。HTTP APIはAccess JWTの署名・issuer・audience・所有者を検証し、設定が不足している場合も認証を省略しません。端末の失効はAPIと既存WebSocketへ反映します。
+
+Workers Logsを有効にし、全リクエストの実行ログとエラーログを記録します。認証成功、端末登録・失効、Vault作成、同期操作の完了、WebSocket接続・切断、R2保存完了は`event`フィールドで検索できます。追加したイベントログには本文・ファイルパス・認証情報を含めません。デプロイ後はCloudflareダッシュボードのWorkerのObservabilityから確認できます。OAuth認可コードやWebSocket接続券が含まれるため、ログ中のURLからクエリ文字列を除去する設定にしています。
 
 Managed OAuthと実際のAccessパス設定を含む手順は、利用するCloudflareアカウントでの確認が必要です。[CloudflareのManaged OAuth資料](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/)も参照してください。
 
