@@ -1,39 +1,41 @@
 # CF Sync
 
-Cloudflare Workers・Durable Objects・R2を使って、複数端末のノートと添付ファイルを同期するObsidianプラグインです。自分のCloudflareアカウントにサーバーを構築して使います。
+English | [日本語](README.ja.md)
+
+An Obsidian plugin that syncs notes and attachments across devices using Cloudflare Workers, Durable Objects, and R2. You host the server in your own Cloudflare account.
 
 https://github.com/user-attachments/assets/b756b66e-3c62-4bcb-9710-f038a03f7667
 
-## 特徴
+## Features
 
-- **同時編集**：複数端末で同じMarkdownノートを編集し、変更をリアルタイムに反映します。
-- **R2への保存**：最新版のノートと添付ファイルを、自分のR2バケットに通常のファイルとして保存します。
-- **オフライン対応**：接続がない間の変更は端末に保存し、再接続後に同期します。
-- **競合ファイルの保持**：自動統合できない添付ファイルなどは、別名で保存します。
-- **モバイル対応**：iOS・AndroidのObsidianでも利用できます。
+- **Concurrent editing**: Edit the same Markdown note on multiple devices, with changes synced in real time.
+- **R2 storage**: Store the latest versions of notes and attachments as regular files in your own R2 bucket.
+- **Offline support**: Save changes locally while offline and sync them when you reconnect.
+- **Conflict preservation**: Keep attachments and other files that cannot be merged automatically under separate names.
+- **Mobile support**: Works with Obsidian on iOS and Android.
 
-## 導入の流れ
+## Getting started
 
-1. [Cloudflareにサーバーを構築する](#サーバーの準備)。
-2. [各端末にプラグインをインストールする](#プラグインの導入)。
-3. ログインし、最初の端末で同期先を作成する。ほかの端末でも同じ同期先を選択する。
+1. [Set up the server on Cloudflare](#server-setup).
+2. [Install the plugin on each device](#plugin-installation).
+3. Sign in and create a remote vault on your first device. Select the same remote vault on your other devices.
 
-## サーバーの準備
+## Server setup
 
-このリポジトリを取得し、`pnpm install --frozen-lockfile`で依存パッケージをインストールします。
+Clone this repository and install dependencies with `pnpm install --frozen-lockfile`.
 
-1. CloudflareでR2を有効にし、`packages/worker/wrangler.toml`の`bucket_name`を自分のバケット名へ変更します。新規作成には`pnpm --filter @cf-sync/worker exec wrangler r2 bucket create <バケット名>`を使います。
-2. 自分のHTTPSホスト名をWorkerのカスタムドメインへ割り当てます。プラグインにはパスを含まないこのオリジンを設定します。
-3. Accessのself-hosted applicationで同期APIの`/api/*`を保護し、自分のメールアドレスだけを許可します。Managed OAuthを有効にします。
-4. OAuthの許可リダイレクトURIを`https://<ホスト名>/oauth/callback`に設定します。
-5. アクセストークンの寿命は15分、Grant sessionは30日を希望値として設定します。
-6. 以下のWorker環境変数を設定します。ローカル開発では同名の値を`packages/worker/.dev.vars`に記載します。
+1. Enable R2 in Cloudflare and set `bucket_name` in `packages/worker/wrangler.toml` to your bucket name. To create a bucket, run `pnpm --filter @cf-sync/worker exec wrangler r2 bucket create <bucket-name>`.
+2. Assign your HTTPS hostname to the Worker as a custom domain. Use this origin, without a path, as the server URL in the plugin.
+3. Protect the sync API at `/api/*` with an Access self-hosted application, allow only your email address, and enable Managed OAuth.
+4. Set the allowed OAuth redirect URI to `https://<hostname>/oauth/callback`.
+5. Set the desired access token lifetime to 15 minutes and the Grant session duration to 30 days.
+6. Configure the Worker environment variables below. For local development, put the same values in `packages/worker/.dev.vars`.
 
-| 変数                 | 値                                                       |
-| -------------------- | -------------------------------------------------------- |
-| `ACCESS_TEAM_DOMAIN` | `example.cloudflareaccess.com`の形式。スキームは付けない |
-| `ACCESS_AUD`         | AccessアプリのApplication Audience                       |
-| `OWNER_EMAIL`        | 同期を許可する自分のメールアドレス                       |
+| Variable             | Value                                                                      |
+| -------------------- | -------------------------------------------------------------------------- |
+| `ACCESS_TEAM_DOMAIN` | Your team domain, such as `example.cloudflareaccess.com`, without a scheme |
+| `ACCESS_AUD`         | The Application Audience of your Access application                        |
+| `OWNER_EMAIL`        | Your email address, allowed to sync                                        |
 
 ```sh
 pnpm --filter @cf-sync/worker exec wrangler login
@@ -43,13 +45,13 @@ pnpm --filter @cf-sync/worker exec wrangler secret put OWNER_EMAIL
 pnpm deploy
 ```
 
-## プラグインの導入
+## Plugin installation
 
-[BRAT](https://tfthacker.com/brat-plugins)に`shun-shobon/obsidian-cf-sync`を追加し、CF Syncをインストールします。
+Add `shun-shobon/obsidian-cf-sync` to [BRAT](https://tfthacker.com/brat-plugins) to install CF Sync.
 
-1. CF Sync設定にサーバーURLと端末名を設定し、ログインします。
-2. ブラウザのAccess認証を終え、中間ページからObsidianへ戻ります。
-3. 最初の端末でリモートVaultを作成します。追加端末では同じリモートVaultを選びます。
-4. 既存ファイルが競合する場合は、初回の確認画面を確認します。異なる内容は別名で保持します。
+1. Enter your server URL and device name in the CF Sync settings, then sign in.
+2. Complete Access authentication in your browser and return to Obsidian from the callback page.
+3. Create a remote vault on your first device. Select the same remote vault on additional devices.
+4. If existing files conflict, review the initial confirmation screen. Files with different contents are kept under separate names.
 
-1つのローカルVaultを1つのリモートVaultへ接続します。別のリモートVaultを使う場合は別のローカルVaultを用意します。
+Each local vault connects to one remote vault. To use a different remote vault, create a separate local vault.
