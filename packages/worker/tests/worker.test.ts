@@ -1,7 +1,7 @@
 import { type Operation, type Snapshot } from "@cf-sync/protocol";
 import { Hono } from "hono";
 import { toUint8Array, fromUint8Array } from "js-base64";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
 import { authenticate } from "../src/infra/access-auth";
@@ -50,6 +50,10 @@ class Storage {
     return this.alarm;
   }
 
+  async deleteAlarm() {
+    this.alarm = null;
+  }
+
   async setAlarm(time: number) {
     this.alarm = time;
   }
@@ -96,7 +100,15 @@ function setup() {
     fail: (value: boolean) => {
       fail = value;
     },
-    alarm: () => vault.alarm(),
+    alarm: async () => {
+      const clock = vi.spyOn(Date, "now").mockReturnValue(storage.alarm ?? Date.now());
+
+      try {
+        await vault.alarm();
+      } finally {
+        clock.mockRestore();
+      }
+    },
     restart: () => {
       vault = new Vault(state, env);
     },
@@ -120,6 +132,42 @@ function create(path: string, value: string): Operation {
 }
 
 describe("Vault durable synchronization", () => {
+  it("leaves an idle vault without an alarm after flushing", async () => {
+    const s = setup();
+    await s.snapshot();
+    expect(s.storage.alarm).toBeNull();
+
+    await s.operation(create("a.md", "one"));
+    expect(s.storage.alarm).not.toBeNull();
+    await s.alarm();
+    expect(s.storage.alarm).toBeNull();
+    s.restart();
+    await s.snapshot();
+    expect(s.storage.alarm).toBeNull();
+  });
+
+  it("schedules ticket expiry exactly and stops after expiration", async () => {
+    const s = setup();
+    const ticket = await s.ticket();
+    expect(s.storage.alarm).toBe(ticket.expiresAt);
+    s.restart();
+    await s.alarm();
+    expect(s.storage.alarm).toBeNull();
+    expect([...s.storage.data.keys()].some((key) => key.startsWith("ticket:"))).toBe(false);
+  });
+
+  it("advances a ticket alarm for writes without postponing the first flush", async () => {
+    const s = setup();
+    const ticket = await s.ticket();
+    await s.operation(create("a.md", "one"));
+    const flushAt = s.storage.alarm;
+    expect(flushAt).toBeLessThan(ticket.expiresAt);
+    await s.operation(create("b.md", "two"));
+    expect(s.storage.alarm).toBe(flushAt);
+    await s.alarm();
+    expect(s.storage.alarm).toBe(ticket.expiresAt);
+  });
+
   it("persists operation dedup across restart and retries failed R2 flush", async () => {
     const s = setup();
     const op = create("a.md", "one");

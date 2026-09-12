@@ -2,6 +2,7 @@ import * as v from "valibot";
 
 import type { AuthState } from "../../domain/auth-state";
 import { AuthenticationError } from "../../domain/authentication-error";
+import { ConnectionError } from "../../domain/connection-error";
 import { serverOrigin } from "../../domain/server-origin";
 import type { Transport } from "../http/transport";
 
@@ -123,7 +124,13 @@ export class OAuthClient {
 
   private async exchange(parameters: Record<string, string>): Promise<string> {
     const generation = this.generation;
-    const response = await this.requestToken(parameters);
+    const response = await this.requestToken(parameters).catch((cause: unknown) => {
+      if (cause instanceof AuthenticationError) {
+        throw cause;
+      }
+
+      throw new ConnectionError("認証サーバーに接続できません", { cause });
+    });
 
     if (generation !== this.generation) {
       throw new AuthenticationError("ログイン状態が変更されました");
@@ -135,7 +142,7 @@ export class OAuthClient {
         throw new AuthenticationError("認証の有効期限が切れました。再ログインしてください");
       }
 
-      throw new Error(`トークン取得に失敗しました (${response.status})`);
+      throw new ConnectionError(`トークン取得に失敗しました (${response.status})`);
     }
 
     const result = v.parse(tokenResponseSchema, JSON.parse(response.text));

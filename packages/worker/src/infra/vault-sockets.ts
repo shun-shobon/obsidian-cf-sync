@@ -62,7 +62,6 @@ export class VaultSockets {
 
     const pair = new WebSocketPair();
     this.state.acceptWebSocket(pair[1], [ticket.deviceId]);
-    pair[1].serializeAttachment({ expiresAt: Date.now() + 15 * 60 * 1000 - 10_000 });
 
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
@@ -71,7 +70,7 @@ export class VaultSockets {
     const data = JSON.stringify(message);
 
     for (const ws of this.state.getWebSockets()) {
-      if (ws.readyState !== WebSocket.OPEN || this.closeExpired(ws)) {
+      if (ws.readyState !== WebSocket.OPEN) {
         continue;
       }
 
@@ -91,26 +90,6 @@ export class VaultSockets {
         await this.state.storage.delete(key);
       }
     }
-
-    for (const ws of this.state.getWebSockets()) {
-      this.closeExpired(ws);
-    }
-  }
-
-  get hasConnections(): boolean {
-    return this.state.getWebSockets().length > 0;
-  }
-
-  private closeExpired(ws: WebSocket): boolean {
-    const attachment = ws.deserializeAttachment() as { expiresAt: number };
-
-    if (attachment.expiresAt > Date.now()) {
-      return false;
-    }
-
-    ws.close(4001, "Reconnect with a fresh ticket");
-
-    return true;
   }
 
   private async ticketKey(secret: string): Promise<string> {

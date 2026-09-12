@@ -2,6 +2,7 @@ import { digest, type FileRecord, type Operation, type OperationResult } from "@
 import { toUint8Array, fromUint8Array } from "js-base64";
 import * as Y from "yjs";
 
+import { ConnectionError } from "../../src/domain/connection-error";
 import type { ApiPort } from "../../src/sync/ports/api-port";
 
 interface ServerDocument {
@@ -21,7 +22,7 @@ export class Server {
   api: ApiPort = {
     snapshot: async () => {
       if (this.offline) {
-        throw Error("offline");
+        throw new ConnectionError("offline");
       }
 
       return {
@@ -51,7 +52,7 @@ export class Server {
 
   private async operate(operation: Operation): Promise<OperationResult> {
     if (this.offline) {
-      throw Error("offline");
+      throw new ConnectionError("offline");
     }
 
     this.calls.push(operation.opId);
@@ -76,7 +77,7 @@ export class Server {
     this.results.set(operation.opId, result);
     if (operation.type !== "delete" && this.failAfterSave) {
       this.failAfterSave = false;
-      throw Error("response lost");
+      throw new ConnectionError("response lost");
     }
 
     return result;

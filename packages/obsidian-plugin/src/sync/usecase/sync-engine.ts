@@ -1,8 +1,12 @@
 import { isExcluded, type FileRecord, type ServerMessage } from "@cf-sync/protocol";
 import type * as Y from "yjs";
 
+import { ConnectionError } from "../../domain/connection-error";
+import { DocumentNotFoundError } from "../../domain/document-not-found-error";
 import type { LocalFile } from "../domain/sync-state";
 import { Documents } from "../service/documents";
+import { SyncConnection } from "../service/sync-connection";
+import { SyncScheduler } from "../service/sync-scheduler";
 import { SyncState } from "../service/sync-state";
 
 import { LocalChanges } from "./local-changes";
@@ -23,11 +27,19 @@ export class SyncEngine {
   private serial: Promise<unknown> = Promise.resolve();
   private paused = false;
   private disposed = false;
-  private socket: { close(): void } | undefined;
-  private timer: ReturnType<typeof setTimeout> | undefined;
+  private readonly connection: SyncConnection;
+  private stopped = false;
+  private readonly scheduler = new SyncScheduler(() => {
+    void this.syncNow();
+  });
 
   constructor(private readonly options: SyncOptions) {
     const { store, vault, api } = options;
+    this.connection = new SyncConnection(
+      api,
+      (message) => this.receive(message),
+      () => this.failed(new ConnectionError("WebSocket が切断されました")),
+    );
     this.state = new SyncState(
       store,
       (status) => options.onStatus(status),
@@ -76,14 +88,33 @@ export class SyncEngine {
 
   pause(): void {
     this.paused = true;
-    clearTimeout(this.timer);
-    this.socket?.close();
-    this.socket = undefined;
+    this.scheduler.cancel();
+    this.connection.disconnect();
     this.state.emit("paused");
   }
 
   async resume(): Promise<void> {
     this.paused = false;
+    await this.refresh();
+  }
+
+  async refresh(): Promise<void> {
+    if (this.paused || this.disposed) {
+      return;
+    }
+
+    this.stopped = false;
+    this.scheduler.cancel();
+    this.connection.disconnect();
+    const generation = this.connection.generation;
+    await this.enqueue(async () => {
+      if (!this.isCurrent(generation)) {
+        return;
+      }
+
+      await this.recovery.run();
+      await this.changes.scan();
+    });
     await this.syncNow();
   }
 
@@ -143,36 +174,102 @@ export class SyncEngine {
 
   syncNow(): Promise<void> {
     return this.enqueue(async () => {
-      if (this.paused || this.disposed) {
+      if (this.paused || this.disposed || this.stopped) {
         return;
       }
 
-      clearTimeout(this.timer);
+      const generation = this.connection.generation;
       this.state.emit("syncing");
       try {
         await this.recovery.run();
-        await this.connect();
-
-        const initialSnapshot = await this.options.api.snapshot();
-        const initialized = await this.reconcile.initialize(initialSnapshot);
-        if (!initialized) {
-          this.pause();
-
+        if (!this.isCurrent(generation)) {
           return;
         }
 
-        await this.sendPending.run();
+        await this.connection.connect();
+        if (!this.isCurrent(generation)) {
+          return;
+        }
 
-        const snapshot = await this.options.api.snapshot();
-        await this.reconcile.run(snapshot);
-
-        this.state.emitProgress();
-        this.schedule(10_000);
+        await this.synchronize(generation);
       } catch (error) {
-        this.state.emit("offline", error);
-        this.schedule(5000);
+        if (this.isCurrent(generation)) {
+          this.failed(error);
+        }
       }
     });
+  }
+
+  private async synchronize(generation: number): Promise<void> {
+    const initialSnapshot = await this.options.api.snapshot();
+    if (!this.isCurrent(generation)) {
+      return;
+    }
+
+    const initialized = await this.reconcile.initialize(initialSnapshot);
+    if (!this.isCurrent(generation)) {
+      return;
+    }
+    if (!initialized) {
+      this.pause();
+
+      return;
+    }
+
+    await this.sendPending.run(() => this.isCurrent(generation));
+    if (!this.isCurrent(generation)) {
+      return;
+    }
+
+    const snapshot = await this.options.api.snapshot();
+    if (!this.isCurrent(generation)) {
+      return;
+    }
+
+    await this.reconcile.run(snapshot);
+    if (!this.isCurrent(generation)) {
+      return;
+    }
+
+    this.state.emitProgress();
+    this.scheduler.succeeded();
+    this.schedulePending();
+  }
+
+  private schedulePending(): void {
+    const hasPending = this.state.data.pending.some((operation) => {
+      const file = this.state.data.files.find((entry) => entry.id === operation.fileId);
+      return !file || !isExcluded(file.path, this.state.data.exclusions);
+    });
+    if (hasPending) {
+      this.schedule();
+    }
+  }
+
+  private failed(error: unknown): void {
+    if (error instanceof DocumentNotFoundError) {
+      this.schedule(100);
+
+      return;
+    }
+
+    this.connection.disconnect();
+    if (!(error instanceof ConnectionError)) {
+      this.stopped = true;
+      this.scheduler.cancel();
+      this.state.emit("error", error);
+
+      return;
+    }
+
+    this.state.emit("offline", error);
+    this.scheduler.retry();
+  }
+
+  private isCurrent(generation: number): boolean {
+    const active = !this.paused && !this.disposed && !this.stopped;
+
+    return generation === this.connection.generation && active;
   }
 
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
@@ -183,28 +280,11 @@ export class SyncEngine {
   }
 
   private schedule(delay = 250): void {
-    if (this.disposed || this.paused) {
+    if (this.disposed || this.paused || this.stopped) {
       return;
     }
 
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
-      void this.syncNow();
-    }, delay);
-  }
-
-  private async connect(): Promise<void> {
-    if (this.socket) {
-      return;
-    }
-
-    this.socket = await this.options.api.connect(
-      (message) => this.receive(message),
-      () => {
-        this.socket = undefined;
-        this.schedule(2000);
-      },
-    );
+    this.scheduler.schedule(delay);
   }
 
   private editorChanged(file: LocalFile, doc: Y.Doc): void {
@@ -237,10 +317,11 @@ export class SyncEngine {
   private async receiveChange(
     message: Extract<ServerMessage, { type: "changed" | "text" }>,
   ): Promise<void> {
-    if (this.paused || this.disposed) {
+    if (this.paused || this.disposed || this.stopped) {
       return;
     }
 
+    const generation = this.connection.generation;
     const hasPendingChanges = this.state.data.pending.some(
       (operation) => operation.fileId === message.fileId,
     );
@@ -252,6 +333,10 @@ export class SyncEngine {
 
     try {
       const document = await this.options.api.document(message.fileId);
+      if (!this.isCurrent(generation)) {
+        return;
+      }
+
       if (!isExcluded(document.file.path, this.state.data.exclusions)) {
         await this.receiveFile.run(document.file, document);
       }
@@ -259,8 +344,13 @@ export class SyncEngine {
       this.state.data.revision = Math.max(this.state.data.revision, message.revision);
       await this.state.persist();
       this.state.emit("r2-pending");
-    } catch {
-      this.schedule(100);
+      this.schedulePending();
+    } catch (error) {
+      if (!this.isCurrent(generation)) {
+        return;
+      }
+
+      this.failed(error);
     }
   }
 }

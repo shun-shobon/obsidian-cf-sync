@@ -10,6 +10,7 @@ import {
   type Snapshot,
   type DocumentResponse,
   type BlobRef,
+  type ServerMessage,
 } from "@cf-sync/protocol";
 import { build } from "esbuild";
 import { toUint8Array, fromUint8Array } from "js-base64";
@@ -265,6 +266,64 @@ describe("Durable Object and R2 runtime integration", () => {
     expect(new Set(snapshot.files.map((file) => file.path)).size).toBe(operations.length);
     expect(results.filter((result) => result.conflict)).toHaveLength(operations.length - 1);
   });
+
+  it("hibernates an idle connected vault and delivers changes after waking", async () => {
+    const { mf } = await start();
+    const ticketResponse = await request(mf, "/tickets", {});
+    const ticket = (await ticketResponse.json()) as { ticket: string };
+    const response = await mf.dispatchFetch(
+      `https://test/ws?ticket=${encodeURIComponent(ticket.ticket)}`,
+      { headers: { "X-Vault-Id": vaultId, Upgrade: "websocket" } },
+    );
+    expect(response.status).toBe(101);
+
+    const socket = response.webSocket!;
+    socket.accept();
+    const messages: ServerMessage[] = [];
+    socket.addEventListener("message", (event) => {
+      if (typeof event.data !== "string") {
+        throw new Error("Expected a JSON text notification");
+      }
+
+      messages.push(JSON.parse(event.data) as ServerMessage);
+    });
+
+    try {
+      const before = (await (await request(mf, "/runtime-state")).json()) as {
+        incarnation: string;
+        alarm: number | null;
+        connections: number;
+      };
+      expect(before.alarm).toBeNull();
+      expect(before.connections).toBe(1);
+
+      await new Promise((resolve) => setTimeout(resolve, 20_000));
+
+      expect(messages).toEqual([]);
+      const after = (await (await request(mf, "/runtime-state")).json()) as typeof before;
+      expect(after.incarnation).not.toBe(before.incarnation);
+      expect(after.alarm).toBeNull();
+      expect(after.connections).toBe(1);
+
+      const fileId = crypto.randomUUID();
+      await apply(mf, {
+        type: "create",
+        opId: crypto.randomUUID(),
+        fileId,
+        path: "after-sleep.md",
+        content: { kind: "text", update: textUpdate("wake up") },
+      });
+      await expect
+        .poll(() =>
+          messages.some((message) => {
+            return message.type === "changed" && message.fileId === fileId;
+          }),
+        )
+        .toBe(true);
+    } finally {
+      socket.close();
+    }
+  }, 30_000);
 
   it("consumes a ticket once and closes revoked device sockets", async () => {
     const { mf } = await start();

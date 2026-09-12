@@ -29,7 +29,6 @@ export class ApplyOperation {
     const changes = await this.prepare(operation, current, files, meta);
 
     await this.repository.commit(meta, files, changes);
-    await this.repository.schedule();
     this.broadcast(operation, changes.result);
 
     return changes.result;

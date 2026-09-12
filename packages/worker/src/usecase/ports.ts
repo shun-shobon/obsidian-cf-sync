@@ -17,8 +17,6 @@ export interface VaultStore {
   commit(meta: VaultMeta, files: StoredFile[], changes: OperationChanges): Promise<void>;
   dirtyPaths(): Promise<string[]>;
   markFlushed(meta: VaultMeta, paths: string[]): Promise<void>;
-  schedule(): Promise<void>;
-  scheduleMaintenance(hasSockets: boolean): Promise<void>;
 }
 
 export interface BlobVerifier {
@@ -28,13 +26,12 @@ export interface BlobVerifier {
 export interface VaultNotifications {
   broadcast(message: ServerMessage): void;
   expire(): Promise<void>;
-  readonly hasConnections: boolean;
 }
 
 export interface VaultArchive {
   write(vaultId: string, path: string, content: Content): Promise<void>;
   delete(vaultId: string, path: string): Promise<void>;
-  collectUnreferenced(vaultId: string, referenced: Set<string>): Promise<void>;
+  collectUnreferenced(vaultId: string, referenced: Set<string>): Promise<number | null>;
 }
 
 export interface DeviceRegistry {
@@ -44,4 +41,11 @@ export interface DeviceRegistry {
 
 export interface DeviceConnections {
   revoke(vaultId: string, deviceId: string): Promise<void>;
+}
+
+export interface MaintenanceSchedule {
+  due(task: "flush" | "blobs"): Promise<boolean>;
+  complete(task: "flush" | "blobs", next: number | null): Promise<void>;
+  schedule(): Promise<void>;
+  retry(): Promise<void>;
 }

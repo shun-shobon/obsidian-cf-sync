@@ -1,6 +1,8 @@
 import { serverMessageSchema, type ServerMessage } from "@cf-sync/protocol";
 import * as v from "valibot";
 
+import { ConnectionError } from "../../domain/connection-error";
+
 interface ConnectionTicket {
   url: string;
   expiresAt: number;
@@ -53,7 +55,7 @@ async function waitUntilOpen(socket: WebSocket) {
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       socket.close();
-      reject(new Error("WebSocket 接続がタイムアウトしました"));
+      reject(new ConnectionError("WebSocket 接続がタイムアウトしました"));
     }, 15_000);
     socket.onopen = () => {
       clearTimeout(timer);
@@ -61,11 +63,11 @@ async function waitUntilOpen(socket: WebSocket) {
     };
     socket.onerror = () => {
       clearTimeout(timer);
-      reject(new Error("WebSocket に接続できません"));
+      reject(new ConnectionError("WebSocket に接続できません"));
     };
     socket.onclose = () => {
       clearTimeout(timer);
-      reject(new Error("WebSocket が閉じられました"));
+      reject(new ConnectionError("WebSocket が閉じられました"));
     };
   });
 }

@@ -11,12 +11,28 @@ import { unwrapRpcResult } from "../../packages/worker/src/infra/rpc-result";
 export { Account };
 
 export class TestVault extends Vault {
+  private readonly incarnation = crypto.randomUUID();
+
+  async runtimeState() {
+    return {
+      incarnation: this.incarnation,
+      alarm: await this.ctx.storage.getAlarm(),
+      connections: this.ctx.getWebSockets().length,
+    };
+  }
+
   async echoJson(body: ReadableStream<Uint8Array>): Promise<ReadableStream<Uint8Array>> {
     const value: unknown = await new Response(body).json();
     return jsonStream(value);
   }
 
   async flushNow(): Promise<void> {
+    const pending = await this.ctx.storage.get<number>("maintenance:flush");
+
+    if (pending !== undefined) {
+      await this.ctx.storage.put("maintenance:flush", Date.now());
+    }
+
     await this.alarm();
   }
 }
@@ -42,6 +58,10 @@ app.use("*", async (c, next) => {
   c.set("vaultId", vaultId);
   c.set("deviceId", c.req.header("X-Device-Id") ?? "");
   return next();
+});
+
+app.get("/runtime-state", async (c) => {
+  return c.json(await c.get("vault").runtimeState());
 });
 
 app.get("/snapshot", async (c) => {

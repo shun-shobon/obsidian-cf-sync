@@ -11,7 +11,10 @@ import {
 } from "@cf-sync/protocol";
 import * as v from "valibot";
 
+import { ApiError } from "../../domain/api-error";
 import { AuthenticationError } from "../../domain/authentication-error";
+import { ConnectionError } from "../../domain/connection-error";
+import { DocumentNotFoundError } from "../../domain/document-not-found-error";
 import { urlSchema } from "../../domain/url-schema";
 import type { ApiPort } from "../../sync/ports/api-port";
 import { OAuthClient } from "../auth/oauth-client";
@@ -70,14 +73,20 @@ export class ApiClient implements ApiPort {
       request.body = body;
     }
 
-    const response = await this.transport(request);
+    const response = await this.transport(request).catch((cause: unknown) => {
+      throw new ConnectionError("同期サーバーに接続できません", { cause });
+    });
 
     if (response.status === 401 || response.status === 403) {
       throw new AuthenticationError("認証または端末の許可を確認してください");
     }
 
     if (response.status < 200 || response.status >= 300) {
-      throw new Error(`同期 API エラー (${response.status})`);
+      if (response.status >= 500 || response.status === 429) {
+        throw new ConnectionError(`同期 API エラー (${response.status})`);
+      }
+
+      throw new ApiError(response.status);
     }
 
     return response;
@@ -90,7 +99,13 @@ export class ApiClient implements ApiPort {
   }
 
   async document(id: string) {
-    const response = await this.request(this.vaultPath(`/files/${id}`));
+    const response = await this.request(this.vaultPath(`/files/${id}`)).catch((error: unknown) => {
+      if (error instanceof ApiError && error.status === 404) {
+        throw new DocumentNotFoundError("対象ファイルは削除されています");
+      }
+
+      throw error;
+    });
 
     return v.parse(documentSchema, response);
   }

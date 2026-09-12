@@ -191,7 +191,7 @@ export class PluginController {
       await this.connect();
     }
 
-    await this.engine?.syncNow();
+    await this.engine?.refresh();
   }
 
   async run(action: () => Promise<void>) {

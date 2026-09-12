@@ -100,8 +100,9 @@ export class BlobStorage {
     }
   }
 
-  async collectUnreferenced(referenced: Set<string>): Promise<void> {
+  async collectUnreferenced(referenced: Set<string>): Promise<number | null> {
     let cursor: string | undefined;
+    let nextExpiry: number | null = null;
 
     while (true) {
       const options: R2ListOptions = { prefix: `staging/${this.vaultId}/` };
@@ -115,15 +116,24 @@ export class BlobStorage {
       for (const object of listing.objects) {
         const key = object.key.slice(object.key.lastIndexOf("/") + 1);
         const isReferenced = referenced.has(key);
-        const isExpired = object.uploaded.getTime() < Date.now() - 86_400_000;
+        if (isReferenced) {
+          continue;
+        }
 
-        if (!isReferenced && isExpired) {
+        const expiresAt = object.uploaded.getTime() + 86_400_000;
+
+        if (expiresAt <= Date.now()) {
           await this.bucket.delete(object.key);
+          continue;
+        }
+
+        if (nextExpiry === null || expiresAt < nextExpiry) {
+          nextExpiry = expiresAt;
         }
       }
 
       if (!listing.truncated) {
-        return;
+        return nextExpiry;
       }
 
       cursor = listing.cursor;

@@ -3,7 +3,6 @@ import { fromUint8Array } from "js-base64";
 
 import { ApplicationError } from "../domain/errors";
 import {
-  FLUSH_INTERVAL_MS,
   TEXT_CHUNK_SIZE,
   type FileWrite,
   type OperationChanges,
@@ -11,8 +10,14 @@ import {
   type VaultMeta,
 } from "../domain/vault-state";
 
+import { VaultMaintenance } from "./vault-maintenance";
+
 export class VaultRepository {
-  constructor(private readonly storage: DurableObjectStorage) {}
+  private readonly maintenance: VaultMaintenance;
+
+  constructor(private readonly storage: DurableObjectStorage) {
+    this.maintenance = new VaultMaintenance(storage);
+  }
 
   async initialize(vaultId: string): Promise<VaultMeta> {
     if (!(await this.storage.get("meta"))) {
@@ -105,7 +110,7 @@ export class VaultRepository {
 
     await this.storage.transaction(async (tx) => {
       await tx.put("meta", meta);
-      await this.ensureAlarm(tx);
+      await this.maintenance.request("flush", tx);
 
       for (const item of await this.files()) {
         if (!isExcluded(item.file.path, exclusions)) {
@@ -118,7 +123,7 @@ export class VaultRepository {
   async commit(meta: VaultMeta, files: StoredFile[], changes: OperationChanges): Promise<void> {
     await this.storage.transaction(async (tx) => {
       await tx.put("meta", meta);
-      await this.ensureAlarm(tx);
+      await this.maintenance.request("flush", tx);
 
       if (changes.removed) {
         await this.deleteFile(tx, changes.removed);
@@ -133,6 +138,16 @@ export class VaultRepository {
       }
 
       await tx.put(`op:${changes.result.opId}`, changes.result);
+
+      const touchesBlobs =
+        changes.removed?.blob || changes.writes.some(({ stored }) => stored.blob);
+      const replacesBlob = changes.writes.some(({ stored }) =>
+        files.some((previous) => previous.file.id === stored.file.id && previous.blob),
+      );
+
+      if (touchesBlobs || replacesBlob) {
+        await this.maintenance.request("blobs", tx);
+      }
     });
   }
 
@@ -151,33 +166,6 @@ export class VaultRepository {
         await tx.delete(`dirty:${path}`);
       }
     });
-  }
-
-  async schedule(): Promise<void> {
-    const alarm = await this.storage.getAlarm();
-
-    if (alarm === null || alarm > Date.now() + FLUSH_INTERVAL_MS) {
-      await this.storage.setAlarm(Date.now() + FLUSH_INTERVAL_MS);
-    }
-  }
-
-  async scheduleMaintenance(hasSockets: boolean): Promise<void> {
-    const hasDirty = (await this.storage.list({ prefix: "dirty:", limit: 1 })).size > 0;
-    const hasTickets = (await this.storage.list({ prefix: "ticket:", limit: 1 })).size > 0;
-    const needsFrequentMaintenance = hasDirty || hasSockets || hasTickets;
-    let interval = 86_400_000;
-
-    if (needsFrequentMaintenance) {
-      interval = FLUSH_INTERVAL_MS;
-    }
-
-    await this.storage.setAlarm(Date.now() + interval);
-  }
-
-  private async ensureAlarm(tx: DurableObjectTransaction): Promise<void> {
-    if ((await tx.getAlarm()) === null) {
-      await tx.setAlarm(Date.now() + FLUSH_INTERVAL_MS);
-    }
   }
 
   private async deleteFile(tx: DurableObjectTransaction, stored: StoredFile): Promise<void> {

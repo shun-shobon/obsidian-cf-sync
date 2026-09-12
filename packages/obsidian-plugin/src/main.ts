@@ -51,13 +51,13 @@ export default class CFSyncPlugin extends Plugin {
     });
     this.registerDomEvent(window, "online", () => {
       void controller.run(async () => {
-        await controller.engine?.syncNow();
+        await controller.engine?.refresh();
       });
     });
     this.registerDomEvent(document, "visibilitychange", () => {
       if (document.visibilityState === "visible") {
         void controller.run(async () => {
-          await controller.engine?.syncNow();
+          await controller.engine?.refresh();
         });
       }
     });

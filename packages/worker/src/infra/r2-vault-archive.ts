@@ -26,7 +26,7 @@ export class R2VaultArchive implements VaultArchive {
     await this.bucket.delete(`vaults/${vaultId}/files/${path}`);
   }
 
-  collectUnreferenced(vaultId: string, referenced: Set<string>): Promise<void> {
+  collectUnreferenced(vaultId: string, referenced: Set<string>): Promise<number | null> {
     return new BlobStorage(this.bucket, vaultId).collectUnreferenced(referenced);
   }
 }

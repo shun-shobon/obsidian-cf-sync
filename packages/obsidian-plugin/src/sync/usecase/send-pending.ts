@@ -14,8 +14,12 @@ export class SendPending {
     private readonly documents: Documents,
   ) {}
 
-  async run(): Promise<void> {
+  async run(isActive: () => boolean): Promise<void> {
     for (const operation of this.state.data.pending) {
+      if (!isActive()) {
+        return;
+      }
+
       const local = this.state.data.files.find((file) => file.id === operation.fileId);
       if (local && isExcluded(local.path, this.state.data.exclusions)) {
         continue;
@@ -23,6 +27,10 @@ export class SendPending {
 
       await this.uploadContent(operation);
       await this.markAttempted(operation);
+      if (!isActive()) {
+        return;
+      }
+
       const result = await this.api.operate(operation);
       if (result.opId !== operation.opId) {
         throw new Error("操作応答の ID が一致しません");

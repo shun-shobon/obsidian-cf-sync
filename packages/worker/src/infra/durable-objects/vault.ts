@@ -12,6 +12,7 @@ import { errorResponse } from "../http/responses";
 import { R2VaultArchive } from "../r2-vault-archive";
 import { jsonStream, readOperation } from "../rpc-json";
 import { rpcResult, type RpcResult } from "../rpc-result";
+import { VaultMaintenance } from "../vault-maintenance";
 import { VaultRepository } from "../vault-repository";
 import { VaultSockets } from "../vault-sockets";
 
@@ -20,13 +21,20 @@ export class Vault extends DurableObject<Env> {
   private readonly repository: VaultRepository;
   private readonly sockets: VaultSockets;
   private readonly flush: FlushVault;
+  private readonly maintenance: VaultMaintenance;
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
 
     this.repository = new VaultRepository(state.storage);
     this.sockets = new VaultSockets(state);
-    this.flush = new FlushVault(this.repository, this.sockets, new R2VaultArchive(env.BUCKET));
+    this.maintenance = new VaultMaintenance(state.storage);
+    this.flush = new FlushVault(
+      this.repository,
+      this.sockets,
+      new R2VaultArchive(env.BUCKET),
+      this.maintenance,
+    );
   }
 
   snapshot(vaultId: string, deviceId: string): Promise<RpcResult<ReadableStream<Uint8Array>>> {
@@ -67,7 +75,7 @@ export class Vault extends DurableObject<Env> {
   ): Promise<RpcResult<ReadableStream<Uint8Array>>> {
     return this.execute(vaultId, deviceId, async (meta) => {
       await this.repository.setExclusions(meta, exclusions);
-      await this.repository.schedule();
+      await this.maintenance.schedule();
       this.sockets.broadcast({ type: "settings", revision: meta.revision });
 
       return this.readSnapshot(meta);
@@ -80,7 +88,7 @@ export class Vault extends DurableObject<Env> {
   ): Promise<RpcResult<{ ticket: string; expiresAt: number }>> {
     return this.execute(vaultId, deviceId, async () => {
       const ticket = await this.sockets.issueTicket(deviceId);
-      await this.repository.schedule();
+      await this.maintenance.schedule();
 
       return ticket;
     });
@@ -109,8 +117,9 @@ export class Vault extends DurableObject<Env> {
   ): Promise<RpcResult<BlobRef>> {
     return this.execute(vaultId, deviceId, async () => {
       const blobs = new BlobStorage(this.env.BUCKET, vaultId);
+      await this.maintenance.request("blobs");
       const blob = await blobs.upload(key, digest, body, sizeHeader);
-      await this.repository.schedule();
+      await this.maintenance.schedule();
 
       return blob;
     });
@@ -131,10 +140,12 @@ export class Vault extends DurableObject<Env> {
 
         const vaultId = v.parse(idSchema, request.headers.get("X-Vault-Id"));
         await this.repository.initialize(vaultId);
-        const response = await this.sockets.connect(request);
-        await this.repository.schedule();
 
-        return response;
+        try {
+          return await this.sockets.connect(request);
+        } finally {
+          await this.maintenance.schedule();
+        }
       });
     } catch (error) {
       return errorResponse(error);
