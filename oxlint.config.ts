@@ -12,6 +12,8 @@ export default defineConfig({
     {
       files: ["packages/*/src/**/*.{ts,tsx}"],
       rules: {
+        "no-ternary": "error",
+        curly: "error",
         "max-lines-per-function": ["error", { max: 60, skipBlankLines: true, skipComments: true }],
       },
     },

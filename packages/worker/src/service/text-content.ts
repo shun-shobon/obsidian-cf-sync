@@ -9,6 +9,7 @@ export function materializeText(update: string): Uint8Array {
 
   try {
     Y.applyUpdate(doc, toUint8Array(update));
+
     return new TextEncoder().encode(doc.getText("content").toJSON());
   } finally {
     doc.destroy();
@@ -26,7 +27,10 @@ export async function mergeText(
   const doc = new Y.Doc();
 
   try {
-    if (previous) Y.applyUpdate(doc, toUint8Array(previous));
+    if (previous) {
+      Y.applyUpdate(doc, toUint8Array(previous));
+    }
+
     Y.applyUpdate(doc, toUint8Array(update));
     const plain = new TextEncoder().encode(doc.getText("content").toJSON());
 

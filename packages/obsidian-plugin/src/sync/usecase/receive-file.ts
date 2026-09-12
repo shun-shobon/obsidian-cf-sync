@@ -4,6 +4,7 @@ import * as Y from "yjs";
 
 import type { LocalFile } from "../domain/sync-state";
 import type { ApiPort } from "../ports/api-port";
+import type { StoredData } from "../ports/sync-store";
 import type { VaultPort } from "../ports/vault-port";
 import type { Documents } from "../service/documents";
 import type { SyncState } from "../service/sync-state";
@@ -37,27 +38,51 @@ export class ReceiveFile {
     fetched?: DocumentResponse,
     context?: ReconcileContext,
   ): Promise<void> {
-    const existing = context
-      ? context.byId.get(remote.id)
-      : this.state.data.files.find((file) => file.id === remote.id);
+    let existing: LocalFile | undefined;
+    if (context) {
+      existing = context.byId.get(remote.id);
+    } else {
+      existing = this.state.data.files.find((file) => file.id === remote.id);
+    }
+
     const paths = context?.paths ?? new Set(await this.vault.list());
-    if (this.alreadyReceived(existing, remote)) return;
-    if (existing && paths.has(existing.path) && (await this.captureChangedFile(existing))) return;
+    if (this.alreadyReceived(existing, remote)) {
+      return;
+    }
+
+    if (existing && paths.has(existing.path)) {
+      const changedLocally = await this.captureChangedFile(existing);
+      if (changedLocally) {
+        return;
+      }
+    }
 
     const document = fetched ?? (await this.api.document(remote.id));
     const sourcePath = existing?.path ?? remote.path;
     const present = new Set(await this.vault.list());
-    const expected = present.has(sourcePath) ? await this.vault.read(sourcePath) : undefined;
-    if (await this.captureDuringFetch(existing, remote, expected)) return;
+    let expected: Uint8Array | undefined;
+    if (present.has(sourcePath)) {
+      expected = await this.vault.read(sourcePath);
+    }
+
+    if (await this.captureDuringFetch(existing, remote, expected)) {
+      return;
+    }
 
     const local = existing ?? { ...remote, diskDigest: remote.digest, documentRevision: 0 };
     const content = await this.prepareContent(local, document);
     const occupied = await this.preparePath(local, remote, paths, context);
-    const expectedAtTarget = occupied ? undefined : expected;
+    let expectedAtTarget = expected;
+    if (occupied) {
+      expectedAtTarget = undefined;
+    }
+
     await this.saveIncoming(remote, document, content, expectedAtTarget);
 
-    if (!(await this.vault.writeIfUnchanged(remote.path, expectedAtTarget, content.bytes))) {
+    const written = await this.vault.writeIfUnchanged(remote.path, expectedAtTarget, content.bytes);
+    if (!written) {
       await this.captureInterruptedWrite(existing, local, remote, content);
+
       return;
     }
 
@@ -67,22 +92,32 @@ export class ReceiveFile {
   }
 
   private alreadyReceived(local: LocalFile | undefined, remote: FileRecord): boolean {
-    if (
-      local?.digest !== remote.digest ||
-      local.path !== remote.path ||
-      (remote.kind !== "blob" && local.documentRevision !== remote.revision)
-    )
+    if (!local) {
       return false;
+    }
+
+    const sameContent = local.digest === remote.digest;
+    const samePath = local.path === remote.path;
+    const sameDocument = remote.kind === "blob" || local.documentRevision === remote.revision;
+    if (!sameContent || !samePath || !sameDocument) {
+      return false;
+    }
 
     local.revision = remote.revision;
     local.pathRevision = remote.pathRevision;
+
     return true;
   }
 
   private async captureChangedFile(local: LocalFile): Promise<boolean> {
     const current = await this.vault.read(local.path);
-    if ((await digest(current)) === local.digest) return false;
+    const diskDigest = await digest(current);
+    if (diskDigest === local.digest) {
+      return false;
+    }
+
     await this.changes.capture(local.path);
+
     return true;
   }
 
@@ -91,16 +126,34 @@ export class ReceiveFile {
     remote: FileRecord,
     expected: Uint8Array | undefined,
   ): Promise<boolean> {
-    if (local && (!expected || (await digest(expected)) !== local.digest)) {
-      if (expected) await this.changes.capture(local.path);
-      else await this.changes.delete(local.path);
+    if (!expected) {
+      if (!local) {
+        return false;
+      }
+
+      await this.changes.delete(local.path);
+
       return true;
     }
-    if (!local && expected && (await digest(expected)) !== remote.digest) {
-      await this.changes.capture(remote.path);
+
+    const diskDigest = await digest(expected);
+    if (local) {
+      if (diskDigest === local.digest) {
+        return false;
+      }
+
+      await this.changes.capture(local.path);
+
       return true;
     }
-    return false;
+
+    if (diskDigest === remote.digest) {
+      return false;
+    }
+
+    await this.changes.capture(remote.path);
+
+    return true;
   }
 
   private async prepareContent(
@@ -119,11 +172,16 @@ export class ReceiveFile {
     const wasOpen = this.documents.get(local.id) !== undefined;
     const doc = await this.documents.open(local);
     const staged = new Y.Doc();
-    Y.applyUpdate(staged, Y.encodeStateAsUpdate(doc));
-    Y.applyUpdate(staged, toUint8Array(document.content.update));
-    const bytes = new TextEncoder().encode(staged.getText("content").toString());
+    const localUpdate = Y.encodeStateAsUpdate(doc);
+    const remoteUpdate = toUint8Array(document.content.update);
+    Y.applyUpdate(staged, localUpdate);
+    Y.applyUpdate(staged, remoteUpdate);
+
+    const mergedText = staged.getText("content").toString();
+    const bytes = new TextEncoder().encode(mergedText);
     const update = fromUint8Array(Y.encodeStateAsUpdate(staged));
     staged.destroy();
+
     return { bytes, update, doc, wasOpen };
   }
 
@@ -133,18 +191,28 @@ export class ReceiveFile {
     paths: Set<string>,
     context?: ReconcileContext,
   ): Promise<boolean> {
-    const candidate = context
-      ? context.byPath.get(remote.path)
-      : this.state.data.files.find((file) => file.path === remote.path);
-    const occupant = candidate?.id !== local.id ? candidate : undefined;
+    let occupant: LocalFile | undefined;
+    if (context) {
+      occupant = context.byPath.get(remote.path);
+    } else {
+      occupant = this.state.data.files.find((file) => file.path === remote.path);
+    }
+
+    if (occupant?.id === local.id) {
+      occupant = undefined;
+    }
+
     if (occupant && paths.has(remote.path)) {
       await this.protectOccupant(occupant, remote.path, paths, context);
     }
-    if (local.path !== remote.path && paths.has(local.path)) {
+
+    const needsMove = local.path !== remote.path && paths.has(local.path);
+    if (needsMove) {
       await this.vault.rename(local.path, remote.path);
       paths.delete(local.path);
       context?.byPath.delete(local.path);
     }
+
     return occupant !== undefined;
   }
 
@@ -162,7 +230,9 @@ export class ReceiveFile {
     paths.delete(path);
     paths.add(protectedPath);
     for (const pending of this.state.data.pending) {
-      if (pending.fileId === occupant.id && "path" in pending) pending.path = protectedPath;
+      if (pending.fileId === occupant.id && "path" in pending) {
+        pending.path = protectedPath;
+      }
     }
   }
 
@@ -172,10 +242,16 @@ export class ReceiveFile {
     content: PreparedContent,
     expected: Uint8Array | undefined,
   ): Promise<void> {
+    const receivedDigest = await digest(content.bytes);
+    let expectedDigest: string | null = null;
+    if (expected) {
+      expectedDigest = await digest(expected);
+    }
+
     this.state.data.incoming = {
       file: { ...remote, revision: document.file.revision },
-      digest: await digest(content.bytes),
-      expectedDigest: expected ? await digest(expected) : null,
+      digest: receivedDigest,
+      expectedDigest,
       update: content.update,
     };
     await this.state.store.save(this.state.data, { key: "incoming", value: content.bytes });
@@ -191,7 +267,10 @@ export class ReceiveFile {
     this.state.data.incoming = null;
     this.releaseContent(local, content);
     // The staged remote state was never applied; capture against the unchanged baseline.
-    if (existing && existing.path !== remote.path) existing.path = remote.path;
+    if (existing && existing.path !== remote.path) {
+      existing.path = remote.path;
+    }
+
     await this.changes.capture(remote.path);
   }
 
@@ -203,10 +282,14 @@ export class ReceiveFile {
     content: PreparedContent,
     context?: ReconcileContext,
   ): Promise<void> {
-    if (!existing) this.state.data.files.push(local);
+    if (!existing) {
+      this.state.data.files.push(local);
+    }
+
     if (content.doc && document.content.kind === "text") {
       Y.applyUpdate(content.doc, toUint8Array(document.content.update), "remote");
     }
+
     context?.byId.set(local.id, local);
     context?.byPath.set(remote.path, local);
     const materializedDigest = await digest(content.bytes);
@@ -215,16 +298,22 @@ export class ReceiveFile {
       diskDigest: materializedDigest,
       documentRevision: document.file.revision,
     });
-    if (remote.conflict) this.state.reportConflict(remote, "競合ファイルを同期しました");
+    if (remote.conflict) {
+      this.state.reportConflict(remote, "競合ファイルを同期しました");
+    }
 
-    const receivedData = content.doc
-      ? { key: `doc:${local.id}`, value: Y.encodeStateAsUpdate(content.doc) }
-      : undefined;
+    let receivedData: StoredData | undefined;
+    if (content.doc) {
+      receivedData = { key: `doc:${local.id}`, value: Y.encodeStateAsUpdate(content.doc) };
+    }
+
     await this.state.store.save({ ...this.state.data, incoming: null }, receivedData);
     this.state.data.incoming = null;
   }
 
   private releaseContent(local: LocalFile, content: PreparedContent): void {
-    if (content.doc && !content.wasOpen) this.documents.remove(local.id);
+    if (content.doc && !content.wasOpen) {
+      this.documents.remove(local.id);
+    }
   }
 }

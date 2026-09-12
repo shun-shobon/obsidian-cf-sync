@@ -21,6 +21,7 @@ export class SyncSettingsTab extends PluginSettingTab {
     this.renderServerSettings();
     this.renderAuthenticationSettings();
     this.renderSyncSettings();
+
     if (this.controller.config.server && this.controller.config.auth.tokens) {
       void this.controller.run(() =>
         renderRemoteSettings(this.containerEl, this.app, this.controller, () => this.display()),
@@ -34,25 +35,25 @@ export class SyncSettingsTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("サーバー URL")
       .setDesc("HTTPS のオリジンを指定します。")
-      .addText((t) =>
-        t
+      .addText((input) =>
+        input
           .setValue(server)
           .setPlaceholder("https://sync.example.com")
-          .onChange((v) => {
-            server = v.trim();
+          .onChange((value) => {
+            server = value.trim();
           }),
       )
-      .addButton((b) =>
-        b.setButtonText("保存").onClick(() => {
+      .addButton((button) =>
+        button.setButtonText("保存").onClick(() => {
           void this.controller.run(async () => {
             await this.controller.changeServer(serverOrigin(server));
             this.display();
           });
         }),
       );
-    new Setting(containerEl).setName("端末名").addText((t) =>
-      t.setValue(this.controller.config.deviceName).onChange((v) => {
-        void this.controller.run(() => this.controller.setDeviceName(v));
+    new Setting(containerEl).setName("端末名").addText((input) =>
+      input.setValue(this.controller.config.deviceName).onChange((value) => {
+        void this.controller.run(() => this.controller.setDeviceName(value));
       }),
     );
   }
@@ -64,13 +65,13 @@ export class SyncSettingsTab extends PluginSettingTab {
       .setDesc(
         "トークンはこの端末のプラグイン data.json に保存されます。このファイルを共有しないでください。",
       )
-      .addButton((b) =>
-        b.setButtonText("ブラウザでログイン").onClick(() => {
+      .addButton((button) =>
+        button.setButtonText("ブラウザでログイン").onClick(() => {
           void this.controller.run(() => this.controller.login());
         }),
       )
-      .addButton((b) =>
-        b.setButtonText("ログアウト").onClick(() => {
+      .addButton((button) =>
+        button.setButtonText("ログアウト").onClick(() => {
           void this.controller.run(() => this.controller.logout());
         }),
       );
@@ -78,18 +79,24 @@ export class SyncSettingsTab extends PluginSettingTab {
 
   private renderSyncSettings() {
     const containerEl = this.containerEl;
+    let description = "未接続";
+
+    if (this.controller.status) {
+      description = statusText(this.controller.status);
+    }
+
     new Setting(containerEl)
       .setName("同期を一時停止")
-      .addToggle((t) =>
-        t
+      .addToggle((input) =>
+        input
           .setValue(this.controller.config.paused)
-          .onChange((v) => this.controller.run(() => this.controller.setPaused(v))),
+          .onChange((value) => this.controller.run(() => this.controller.setPaused(value))),
       );
     new Setting(containerEl)
       .setName("同期状態")
-      .setDesc(this.controller.status ? statusText(this.controller.status) : "未接続")
-      .addButton((b) =>
-        b.setButtonText("今すぐ同期").onClick(() => {
+      .setDesc(description)
+      .addButton((button) =>
+        button.setButtonText("今すぐ同期").onClick(() => {
           void this.controller.run(async () => {
             await this.controller.engine?.syncNow();
             this.display();

@@ -3,6 +3,7 @@ import { toUint8Array } from "js-base64";
 import * as Y from "yjs";
 
 import type { IncomingWrite } from "../domain/sync-state";
+import type { StoredData } from "../ports/sync-store";
 import type { VaultPort } from "../ports/vault-port";
 import type { Documents } from "../service/documents";
 import type { SyncState } from "../service/sync-state";
@@ -19,30 +20,43 @@ export class RecoverIncoming {
 
   async run(): Promise<void> {
     const incoming = this.state.data.incoming;
-    if (!incoming) return;
+    if (!incoming) {
+      return;
+    }
 
     const paths = new Set(await this.vault.list());
-    const current = paths.has(incoming.file.path)
-      ? await this.vault.read(incoming.file.path)
-      : undefined;
-    const currentDigest = current ? await digest(current) : null;
+    let current: Uint8Array | undefined;
+    let currentDigest: string | null = null;
+    if (paths.has(incoming.file.path)) {
+      current = await this.vault.read(incoming.file.path);
+      currentDigest = await digest(current);
+    }
+
     if (!current && incoming.expectedDigest !== null) {
       await this.recoverDeletedFile(incoming);
+
       return;
     }
+
     if (currentDigest === incoming.expectedDigest) {
       await this.clearIncoming();
+
       return;
     }
+
     if (currentDigest !== incoming.digest) {
       await this.recoverChangedFile(incoming, current);
     }
+
     await this.commitRecovered(incoming);
   }
 
   private async receivedBytes(): Promise<Uint8Array> {
     const received = await this.state.store.get("incoming");
-    if (!received) throw new Error("受信中のファイルデータがありません");
+    if (!received) {
+      throw new Error("受信中のファイルデータがありません");
+    }
+
     return received;
   }
 
@@ -83,6 +97,7 @@ export class RecoverIncoming {
         baseRevision: incoming.file.revision,
       });
     }
+
     await this.clearIncoming();
   }
 
@@ -97,8 +112,10 @@ export class RecoverIncoming {
         "中断中に変更された内容を復旧コピーへ保護しました",
       );
     }
+
     const received = await this.receivedBytes();
-    if (!(await this.vault.writeIfUnchanged(incoming.file.path, current, received))) {
+    const written = await this.vault.writeIfUnchanged(incoming.file.path, current, received);
+    if (!written) {
       throw new Error("受信回復中にファイルが変更されました。再試行します");
     }
   }
@@ -114,14 +131,20 @@ export class RecoverIncoming {
     if (!local) {
       local = received;
       this.state.data.files.push(local);
-    } else Object.assign(local, received);
+    } else {
+      Object.assign(local, received);
+    }
 
-    const data = incoming.update
-      ? { key: `doc:${local.id}`, value: toUint8Array(incoming.update) }
-      : undefined;
+    let data: StoredData | undefined;
+    if (incoming.update) {
+      data = { key: `doc:${local.id}`, value: toUint8Array(incoming.update) };
+    }
+
     await this.state.store.save({ ...this.state.data, incoming: null }, data);
     this.state.data.incoming = null;
     const doc = this.documents.get(local.id);
-    if (data && doc) Y.applyUpdate(doc, data.value, "remote");
+    if (data && doc) {
+      Y.applyUpdate(doc, data.value, "remote");
+    }
   }
 }

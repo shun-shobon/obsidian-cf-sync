@@ -13,8 +13,10 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.onError(onError);
 app.notFound(notFound);
+
 app.get("/oauth/callback", jsxRenderer(), oauthCallback);
 app.route("/api", apiRoutes);
+
 app.get("/ws", routeWebSocket);
 
 export default app;

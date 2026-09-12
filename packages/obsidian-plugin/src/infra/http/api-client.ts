@@ -9,14 +9,20 @@ import {
   type Operation,
   type ServerMessage,
 } from "@cf-sync/protocol";
-import { z } from "zod";
+import * as v from "valibot";
 
 import { AuthenticationError } from "../../domain/authentication-error";
+import { urlSchema } from "../../domain/url-schema";
 import type { ApiPort } from "../../sync/ports/api-port";
 import { OAuthClient } from "../auth/oauth-client";
 
-import type { Transport } from "./transport";
+import type { HttpRequest, Transport } from "./transport";
 import { connectSocket } from "./websocket";
+
+const connectionTicketSchema = v.object({
+  url: urlSchema,
+  expiresAt: v.pipe(v.number(), v.finite()),
+});
 
 export class ApiClient implements ApiPort {
   constructor(
@@ -31,12 +37,15 @@ export class ApiClient implements ApiPort {
   }
 
   async request(path: string, method = "GET", body?: unknown): Promise<unknown> {
-    const response = await this.send(
-      path,
-      method,
-      body === undefined ? undefined : JSON.stringify(body),
-      { "Content-Type": "application/json" },
-    );
+    let serializedBody: string | undefined;
+
+    if (body !== undefined) {
+      serializedBody = JSON.stringify(body);
+    }
+
+    const headers = { "Content-Type": "application/json" };
+    const response = await this.send(path, method, serializedBody, headers);
+
     return JSON.parse(response.text) as unknown;
   }
 
@@ -47,31 +56,49 @@ export class ApiClient implements ApiPort {
     headers: Record<string, string> = {},
   ) {
     const token = await this.auth.token();
-    const response = await this.transport({
+    const request: HttpRequest = {
       url: this.auth.origin + path,
       method,
-      headers: { ...headers, Authorization: `Bearer ${token}`, "X-Device-Id": this.deviceId },
-      ...(body === undefined ? {} : { body }),
-    });
-    if (response.status === 401 || response.status === 403)
+      headers: {
+        ...headers,
+        Authorization: `Bearer ${token}`,
+        "X-Device-Id": this.deviceId,
+      },
+    };
+
+    if (body !== undefined) {
+      request.body = body;
+    }
+
+    const response = await this.transport(request);
+
+    if (response.status === 401 || response.status === 403) {
       throw new AuthenticationError("認証または端末の許可を確認してください");
-    if (response.status < 200 || response.status >= 300)
+    }
+
+    if (response.status < 200 || response.status >= 300) {
       throw new Error(`同期 API エラー (${response.status})`);
+    }
+
     return response;
   }
 
   async snapshot() {
-    return snapshotSchema.parse(await this.request(this.vaultPath("/snapshot")));
+    const response = await this.request(this.vaultPath("/snapshot"));
+
+    return v.parse(snapshotSchema, response);
   }
 
   async document(id: string) {
-    return documentSchema.parse(await this.request(this.vaultPath(`/files/${id}`)));
+    const response = await this.request(this.vaultPath(`/files/${id}`));
+
+    return v.parse(documentSchema, response);
   }
 
   async operate(op: Operation) {
-    return operationResultSchema.parse(
-      await this.request(this.vaultPath("/operations"), "POST", op),
-    );
+    const response = await this.request(this.vaultPath("/operations"), "POST", op);
+
+    return v.parse(operationResultSchema, response);
   }
 
   async upload(key: string, bytes: Uint8Array, digest: string) {
@@ -85,21 +112,26 @@ export class ApiClient implements ApiPort {
         "X-Content-Size": String(bytes.byteLength),
       },
     );
-    return blobSchema.parse(JSON.parse(response.text));
+
+    return v.parse(blobSchema, JSON.parse(response.text));
   }
 
   async download(ref: BlobRef) {
-    return new Uint8Array((await this.send(this.vaultPath(`/blobs/${ref.key}`), "GET")).bytes);
+    const response = await this.send(this.vaultPath(`/blobs/${ref.key}`), "GET");
+
+    return new Uint8Array(response.bytes);
   }
 
   async devices() {
-    return z.array(deviceSchema).parse(await this.request("/api/devices"));
+    const response = await this.request("/api/devices");
+
+    return v.parse(v.array(deviceSchema), response);
   }
 
   async registerDevice(name: string) {
-    return deviceSchema.parse(
-      await this.request("/api/devices", "POST", { id: this.deviceId, name }),
-    );
+    const response = await this.request("/api/devices", "POST", { id: this.deviceId, name });
+
+    return v.parse(deviceSchema, response);
   }
 
   async revokeDevice(id: string) {
@@ -107,28 +139,30 @@ export class ApiClient implements ApiPort {
   }
 
   async vaults() {
-    return z.array(vaultInfoSchema).parse(await this.request("/api/vaults"));
+    const response = await this.request("/api/vaults");
+
+    return v.parse(v.array(vaultInfoSchema), response);
   }
 
   async createVault(name: string) {
-    return vaultInfoSchema.parse(
-      await this.request("/api/vaults", "POST", { id: crypto.randomUUID(), name }),
-    );
+    const response = await this.request("/api/vaults", "POST", { id: crypto.randomUUID(), name });
+
+    return v.parse(vaultInfoSchema, response);
   }
 
   async exclusions(exclusions: string[]) {
-    return snapshotSchema.parse(
-      await this.request(this.vaultPath("/exclusions"), "PUT", { exclusions }),
-    );
+    const response = await this.request(this.vaultPath("/exclusions"), "PUT", { exclusions });
+
+    return v.parse(snapshotSchema, response);
   }
 
   async connect(
     onMessage: (message: ServerMessage) => void,
     onClose: () => void,
   ): Promise<{ close(): void }> {
-    const ticket = z
-      .object({ url: z.string().url(), expiresAt: z.number() })
-      .parse(await this.request(this.vaultPath("/tickets"), "POST"));
+    const response = await this.request(this.vaultPath("/tickets"), "POST");
+    const ticket = v.parse(connectionTicketSchema, response);
+
     return connectSocket(ticket, this.auth.origin, onMessage, onClose);
   }
 }

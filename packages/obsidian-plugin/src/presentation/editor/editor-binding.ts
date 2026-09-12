@@ -34,12 +34,20 @@ export class EditorBinding {
   }
 
   private schedule() {
-    if (this.disposed) return;
-    if (this.binding) {
-      this.retry = true;
+    if (this.disposed) {
       return;
     }
-    if (this.scheduled) return;
+
+    if (this.binding) {
+      this.retry = true;
+
+      return;
+    }
+
+    if (this.scheduled) {
+      return;
+    }
+
     this.scheduled = true;
     queueMicrotask(() => {
       this.scheduled = false;
@@ -52,6 +60,7 @@ export class EditorBinding {
 
   private finishBinding() {
     this.binding = false;
+
     if (this.retry) {
       this.retry = false;
       this.schedule();
@@ -63,7 +72,10 @@ export class EditorBinding {
   }
 
   private unbind() {
-    if (!this.doc) return;
+    if (!this.doc) {
+      return;
+    }
+
     const oldDoc = this.doc;
     this.doc = undefined;
     this.view.dispatch({ effects: this.slot.reconfigure([]) });
@@ -74,23 +86,64 @@ export class EditorBinding {
   private async bind() {
     const path = this.currentPath();
     const engine = this.getEngine();
-    if (path && path === this.path && this.doc && engine?.getDoc(path) === this.doc) return;
-    this.unbind();
-    this.path = path;
-    if (!path || !engine || !path.endsWith(".md")) return;
-    const doc = await engine.ensureDoc(path);
-    if (!doc) return;
-    if (!this.canAttach(engine, path, doc)) {
-      engine.releaseDoc(doc);
+
+    if (this.isCurrentBinding(path, engine)) {
       return;
     }
+
+    this.unbind();
+    this.path = path;
+
+    if (!path || !engine) {
+      return;
+    }
+
+    if (!path.endsWith(".md")) {
+      return;
+    }
+
+    const doc = await engine.ensureDoc(path);
+
+    if (!doc) {
+      return;
+    }
+
+    if (!this.canAttach(engine, path, doc)) {
+      engine.releaseDoc(doc);
+
+      return;
+    }
+
     this.doc = doc;
     this.boundEngine = engine;
     this.view.dispatch({ effects: this.slot.reconfigure(collaborationExtension(doc)) });
   }
 
+  private isCurrentBinding(path: string | undefined, engine: EditorDocuments | undefined): boolean {
+    if (!path || !this.doc) {
+      return false;
+    }
+
+    if (path !== this.path) {
+      return false;
+    }
+
+    return engine?.getDoc(path) === this.doc;
+  }
+
   private canAttach(engine: EditorDocuments, path: string, doc: Y.Doc): boolean {
-    if (this.disposed || this.getEngine() !== engine || this.currentPath() !== path) return false;
+    if (this.disposed) {
+      return false;
+    }
+
+    if (this.getEngine() !== engine) {
+      return false;
+    }
+
+    if (this.currentPath() !== path) {
+      return false;
+    }
+
     // Buffer reconciliation belongs to vault capture. Attaching a binding must not
     // replace local editor contents that have not been captured yet.
     return this.view.state.doc.toString() === doc.getText("content").toString();
@@ -98,6 +151,9 @@ export class EditorBinding {
 
   destroy() {
     this.disposed = true;
-    if (this.doc) this.boundEngine?.releaseDoc(this.doc);
+
+    if (this.doc) {
+      this.boundEngine?.releaseDoc(this.doc);
+    }
   }
 }

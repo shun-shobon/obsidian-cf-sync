@@ -35,7 +35,7 @@ export default defineConfig({
       "y-codemirror.next",
       "y-protocols",
       /^lib0(?:\/|$)/,
-      "zod",
+      "valibot",
     ],
   },
   outputOptions: { entryFileNames: "[name].js" },

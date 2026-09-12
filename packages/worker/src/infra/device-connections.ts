@@ -10,6 +10,9 @@ export class DurableObjectDeviceConnections implements DeviceConnections {
         method: "POST",
         body: JSON.stringify({ deviceId }),
       });
-    if (!response.ok) throw new Error("Could not revoke vault connections");
+
+    if (!response.ok) {
+      throw new Error("Could not revoke vault connections");
+    }
   }
 }

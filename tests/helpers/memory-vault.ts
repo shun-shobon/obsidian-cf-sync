@@ -8,7 +8,9 @@ export function memoryVault(files: Map<string, Uint8Array>): VaultPort {
 
     async read(path) {
       const bytes = files.get(path);
-      if (!bytes) throw new Error(`Missing ${path}`);
+      if (!bytes) {
+        throw new Error(`Missing ${path}`);
+      }
       return bytes;
     },
 
@@ -22,23 +24,36 @@ export function memoryVault(files: Map<string, Uint8Array>): VaultPort {
 
     async rename(oldPath, newPath) {
       const value = files.get(oldPath);
-      if (!value) throw new Error("Missing rename");
+      if (!value) {
+        throw new Error("Missing rename");
+      }
       files.set(newPath, value);
       files.delete(oldPath);
     },
 
     async writeIfUnchanged(path, expected, bytes) {
       const current = files.get(path);
-      if (
-        expected === undefined
-          ? current !== undefined
-          : !current ||
-            current.length !== expected.length ||
-            !current.every((byte, index) => byte === expected[index])
-      )
+      if (!matchesExpected(current, expected)) {
         return false;
+      }
+
       files.set(path, new Uint8Array(bytes));
       return true;
     },
   };
+}
+
+function matchesExpected(
+  current: Uint8Array | undefined,
+  expected: Uint8Array | undefined,
+): boolean {
+  if (expected === undefined) {
+    return current === undefined;
+  }
+
+  if (current === undefined || current.length !== expected.length) {
+    return false;
+  }
+
+  return current.every((byte, index) => byte === expected[index]);
 }

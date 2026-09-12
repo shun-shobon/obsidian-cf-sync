@@ -8,7 +8,9 @@ import { apply, deviceId, document, request, vaultId } from "./runtime-api";
 export function createRuntimeApi(mf: Miniflare): ApiPort {
   return {
     async snapshot() {
-      return (await (await request(mf, "/snapshot")).json()) as Snapshot;
+      const response = await request(mf, "/snapshot");
+
+      return (await response.json()) as Snapshot;
     },
 
     async document(id) {
@@ -30,23 +32,31 @@ export function createRuntimeApi(mf: Miniflare): ApiPort {
         },
         body: bytes,
       });
-      if (!result.ok) throw new Error(await result.text());
+      if (!result.ok) {
+        throw new Error(await result.text());
+      }
       return (await result.json()) as BlobRef;
     },
 
     async download(ref) {
-      return new Uint8Array(await (await request(mf, `/blobs/${ref.key}`)).arrayBuffer());
+      const response = await request(mf, `/blobs/${ref.key}`);
+      const bytes = await response.arrayBuffer();
+
+      return new Uint8Array(bytes);
     },
 
     async connect(onMessage, onClose) {
-      const ticket = (await (await request(mf, "/tickets", {})).json()) as { ticket: string };
+      const ticketResponse = await request(mf, "/tickets", {});
+      const ticket = (await ticketResponse.json()) as { ticket: string };
       const response = await mf.dispatchFetch(`https://test/ws?ticket=${ticket.ticket}`, {
         headers: { "X-Vault-Id": vaultId, Upgrade: "websocket" },
       });
       const socket = response.webSocket!;
       socket.accept();
       socket.addEventListener("message", (event) => {
-        if (typeof event.data !== "string") throw new Error("Expected JSON message");
+        if (typeof event.data !== "string") {
+          throw new Error("Expected JSON message");
+        }
         onMessage(JSON.parse(event.data) as ServerMessage);
       });
       socket.addEventListener("close", onClose);

@@ -9,7 +9,10 @@ export class Vault implements VaultPort {
 
   async read(path: string) {
     const value = this.files.get(path);
-    if (!value) throw Error("Missing file");
+    if (!value) {
+      throw Error("Missing file");
+    }
+
     return value;
   }
 
@@ -19,12 +22,19 @@ export class Vault implements VaultPort {
 
   async writeIfUnchanged(path: string, expected: Uint8Array | undefined, bytes: Uint8Array) {
     const current = this.files.get(path);
-    if (
-      current?.length !== expected?.length ||
-      (current && expected && !current.every((byte, index) => byte === expected[index]))
-    )
+    if (current?.length !== expected?.length) {
       return false;
+    }
+
+    if (current && expected) {
+      const matchesBaseline = current.every((byte, index) => byte === expected[index]);
+      if (!matchesBaseline) {
+        return false;
+      }
+    }
+
     this.files.set(path, bytes);
+
     return true;
   }
 

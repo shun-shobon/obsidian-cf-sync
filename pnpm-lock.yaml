@@ -173,6 +173,9 @@ importers:
       lib0:
         specifier: 0.2.117
         version: 0.2.117
+      valibot:
+        specifier: 1.5.0
+        version: 1.5.0(typescript@7.0.2)
       y-codemirror.next:
         specifier: 0.3.6
         version: 0.3.6(@codemirror/state@6.5.0)(@codemirror/view@6.38.6)(yjs@13.6.32)
@@ -182,9 +185,6 @@ importers:
       yjs:
         specifier: 13.6.32
         version: 13.6.32
-      zod:
-        specifier: 4.5.4
-        version: 4.5.4
     devDependencies:
       '@codemirror/commands':
         specifier: 6.11.0
@@ -213,9 +213,9 @@ importers:
       lib0:
         specifier: 0.2.117
         version: 0.2.117
-      zod:
-        specifier: 4.5.4
-        version: 4.5.4
+      valibot:
+        specifier: 1.5.0
+        version: 1.5.0(typescript@7.0.2)
     devDependencies:
       js-base64:
         specifier: 3.9.3
@@ -235,12 +235,12 @@ importers:
       js-base64:
         specifier: 3.9.3
         version: 3.9.3
+      valibot:
+        specifier: 1.5.0
+        version: 1.5.0(typescript@7.0.2)
       yjs:
         specifier: 13.6.32
         version: 13.6.32
-      zod:
-        specifier: 4.5.4
-        version: 4.5.4
     devDependencies:
       '@cloudflare/workers-types':
         specifier: 5.20260908.1
@@ -1965,6 +1965,14 @@ packages:
   unenv@2.0.0-rc.24:
     resolution: {integrity: sha512-i7qRCmY42zmCwnYlh9H2SvLEypEFGye5iRmEMKjcGi7zk9UquigRjFtTLz0TYqr0ZGLZhaMHl/foy1bZR+Cwlw==}
 
+  valibot@1.5.0:
+    resolution: {integrity: sha512-nil6AkP2TChWL43Z5uJ6GTxX01CUA+g8LWUM+N/rB9NBbkUMaUsi9PUNzlUPgoKASgmx9f7eGOYpJ04/fSa6FQ==}
+    peerDependencies:
+      typescript: '>=5'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
   verkit@0.4.0:
     resolution: {integrity: sha512-sXMwN6DMHeouPfCxkxWkKAmxphWKEenHYY5H1nIBzU3PmDsmJp6kBXJdshjVdpMZuWCmL9SH7KFRx29AylpP6g==}
     engines: {node: '>=18.12.0'}
@@ -2128,9 +2136,6 @@ packages:
 
   yuku-parser@0.9.5:
     resolution: {integrity: sha512-IBnAdNVMswWbJcM7woPluOudectJzFjJ1N8jVRxP9Uq4CIv5hZdBIcdmtRbFDYF/Ph2j2gVup4YJ4N9mh0jYFA==}
-
-  zod@4.5.4:
-    resolution: {integrity: sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA==}
 
 snapshots:
 
@@ -3345,6 +3350,10 @@ snapshots:
     dependencies:
       pathe: 2.0.3
 
+  valibot@1.5.0(typescript@7.0.2):
+    optionalDependencies:
+      typescript: 7.0.2
+
   verkit@0.4.0: {}
 
   vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.1)(tsx@4.23.13):
@@ -3493,5 +3502,3 @@ snapshots:
       '@yuku-parser/binding-linux-x64-musl': 0.9.5
       '@yuku-parser/binding-win32-arm64': 0.9.5
       '@yuku-parser/binding-win32-x64': 0.9.5
-
-  zod@4.5.4: {}

@@ -1,4 +1,5 @@
 import { serverMessageSchema, type ServerMessage } from "@cf-sync/protocol";
+import * as v from "valibot";
 
 interface ConnectionTicket {
   url: string;
@@ -12,16 +13,18 @@ export async function connectSocket(
   onClose: () => void,
 ): Promise<{ close(): void }> {
   const url = new URL(ticket.url);
-  if (
-    url.protocol !== "wss:" ||
-    url.host !== new URL(origin).host ||
-    ticket.expiresAt <= Date.now()
-  )
+  const isTrustedUrl = url.protocol === "wss:" && url.host === new URL(origin).host;
+  const isExpired = ticket.expiresAt <= Date.now();
+
+  if (!isTrustedUrl || isExpired) {
     throw new Error("接続 URL が無効です");
+  }
+
   const socket = new WebSocket(url);
   receiveMessages(socket, onMessage);
   await waitUntilOpen(socket);
   socket.onclose = onClose;
+
   return {
     close: () => {
       socket.onclose = null;
@@ -33,9 +36,13 @@ export async function connectSocket(
 function receiveMessages(socket: WebSocket, onMessage: (message: ServerMessage) => void) {
   socket.onmessage = (event) => {
     try {
-      const parsed = serverMessageSchema.safeParse(JSON.parse(String(event.data)));
-      if (parsed.success) onMessage(parsed.data);
-      else socket.close(1002, "Invalid message");
+      const parsed = v.safeParse(serverMessageSchema, JSON.parse(String(event.data)));
+
+      if (parsed.success) {
+        onMessage(parsed.output);
+      } else {
+        socket.close(1002, "Invalid message");
+      }
     } catch {
       socket.close(1002, "Invalid message");
     }

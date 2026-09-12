@@ -17,7 +17,11 @@ class ConfirmInitialModal extends Modal {
       text: "同じパスに異なる内容があります。両方の内容を別名で保護して同期します。",
     });
     const list = this.contentEl.createEl("ul");
-    for (const path of this.paths) list.createEl("li", { text: path });
+
+    for (const path of this.paths) {
+      list.createEl("li", { text: path });
+    }
+
     new Setting(this.contentEl)
       .addButton((button) => button.setButtonText("キャンセル").onClick(() => this.close()))
       .addButton((button) =>

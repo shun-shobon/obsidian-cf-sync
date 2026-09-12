@@ -11,5 +11,11 @@ const labels: Record<SyncStatus["phase"], string> = {
 };
 
 export function statusText(status: SyncStatus): string {
-  return `${labels[status.phase]} / 未送信 ${status.pending}${status.error ? ` / ${status.error}` : ""}`;
+  const parts = [labels[status.phase], `未送信 ${status.pending}`];
+
+  if (status.error) {
+    parts.push(status.error);
+  }
+
+  return parts.join(" / ");
 }

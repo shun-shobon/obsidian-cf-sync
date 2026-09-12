@@ -5,7 +5,10 @@ import * as Y from "yjs";
 export function replaceText(doc: Y.Doc, value: string, origin: unknown): void {
   const text = doc.getText("content");
   const previous = text.toString();
-  if (previous === value) return;
+  if (previous === value) {
+    return;
+  }
+
   const change = simpleDiffString(previous, value);
 
   doc.transact(() => {

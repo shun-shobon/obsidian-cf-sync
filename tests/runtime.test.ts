@@ -21,6 +21,7 @@ import { apply, deviceId, document, request, vaultId } from "./helpers/runtime-a
 import { createRuntimeClient } from "./helpers/runtime-client";
 
 let script: string;
+
 beforeAll(async () => {
   const built = await build({
     entryPoints: ["tests/fixtures/worker.ts"],
@@ -32,15 +33,20 @@ beforeAll(async () => {
   });
   script = built.outputFiles[0]!.text;
 });
+
 const runtimes: Miniflare[] = [];
 const folders: string[] = [];
+
 afterAll(async () => {
   await Promise.all(runtimes.map((runtime) => runtime.dispose()));
   await Promise.all(folders.map((folder) => rm(folder, { recursive: true, force: true })));
 });
+
 async function start(folder?: string) {
   const storage = folder ?? (await mkdtemp(join(tmpdir(), "cf-sync-test-")));
-  if (!folder) folders.push(storage);
+  if (!folder) {
+    folders.push(storage);
+  }
   const mf = new Miniflare({
     modules: true,
     script,
@@ -56,6 +62,7 @@ async function start(folder?: string) {
   runtimes.push(mf);
   return { mf, storage };
 }
+
 function textUpdate(text: string) {
   const doc = new Y.Doc();
   doc.getText("content").insert(0, text);
@@ -63,8 +70,11 @@ function textUpdate(text: string) {
   doc.destroy();
   return update;
 }
+
 function plain(content: DocumentResponse) {
-  if (content.content.kind !== "text") throw new Error("not text");
+  if (content.content.kind !== "text") {
+    throw new Error("not text");
+  }
   const doc = new Y.Doc();
   Y.applyUpdate(doc, toUint8Array(content.content.update));
   const text = doc.getText("content").toString();
@@ -97,6 +107,7 @@ describe("Durable Object and R2 runtime integration", () => {
     expect((await apply(restarted, op)).revision).toBe(first.revision);
     expect(plain(await document(restarted, id))).toBe("日本語のノート");
   });
+
   it("merges concurrent edits, protects deletion races and preserves colliding files", async () => {
     const { mf } = await start();
     const id = crypto.randomUUID();
@@ -108,13 +119,17 @@ describe("Durable Object and R2 runtime integration", () => {
       content: { kind: "text", update: textUpdate("base") },
     });
     const current = await document(mf, id);
-    if (current.content.kind !== "text") throw new Error("not text");
-    const left = new Y.Doc(),
-      right = new Y.Doc();
-    for (const doc of [left, right]) Y.applyUpdate(doc, toUint8Array(current.content.update));
+    if (current.content.kind !== "text") {
+      throw new Error("not text");
+    }
+    const left = new Y.Doc();
+    const right = new Y.Doc();
+    for (const doc of [left, right]) {
+      Y.applyUpdate(doc, toUint8Array(current.content.update));
+    }
     left.getText("content").insert(0, "L");
     right.getText("content").insert(4, "R");
-    for (const doc of [left, right])
+    for (const doc of [left, right]) {
       await apply(mf, {
         type: "edit",
         opId: crypto.randomUUID(),
@@ -123,6 +138,7 @@ describe("Durable Object and R2 runtime integration", () => {
         baseRevision: base.revision,
         content: { kind: "text", update: fromUint8Array(Y.encodeStateAsUpdate(doc)) },
       });
+    }
     expect(plain(await document(mf, id))).toBe("LbaseR");
     const removed = await apply(mf, {
       type: "delete",
@@ -161,11 +177,12 @@ describe("Durable Object and R2 runtime integration", () => {
     left.destroy();
     right.destroy();
   });
+
   it("streams attachment bytes and retains excluded R2 files", async () => {
     const { mf } = await start();
-    const bytes = new Uint8Array(20 * 1024 * 1024).fill(123),
-      key = crypto.randomUUID(),
-      hash = await digest(bytes);
+    const bytes = new Uint8Array(20 * 1024 * 1024).fill(123);
+    const key = crypto.randomUUID();
+    const hash = await digest(bytes);
     const uploaded = await mf.dispatchFetch(`https://test/blobs/${key}`, {
       method: "PUT",
       headers: {
@@ -197,6 +214,7 @@ describe("Durable Object and R2 runtime integration", () => {
     const snapshot = (await (await request(mf, "/snapshot")).json()) as Snapshot;
     expect(snapshot.exclusions).toEqual(["assets"]);
   });
+
   it("consumes a ticket once and closes revoked device sockets", async () => {
     const { mf } = await start();
     const ticket = (await (await request(mf, "/tickets", {})).json()) as { ticket: string };
@@ -220,8 +238,9 @@ describe("Durable Object and R2 runtime integration", () => {
 describe("client engine against the real DO", () => {
   it("converges offline edits through HTTP and websocket notifications", async () => {
     const { mf } = await start();
-    const left = createRuntimeClient(mf, { "note.md": "base" }),
-      right = createRuntimeClient(mf, {});
+    const left = createRuntimeClient(mf, { "note.md": "base" });
+    const right = createRuntimeClient(mf, {});
+
     try {
       await left.engine.start();
       await right.engine.start();

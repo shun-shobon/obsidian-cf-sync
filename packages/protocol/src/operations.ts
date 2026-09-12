@@ -1,39 +1,61 @@
-import { z } from "zod";
+import * as v from "valibot";
 
 import { contentSchema } from "./content";
 import { fileRecordSchema } from "./files";
 import { idSchema } from "./identity";
+import { integerSchema, nonNegativeIntegerSchema } from "./numbers";
 import { pathSchema } from "./paths";
 
-const base = { opId: idSchema, fileId: idSchema };
-export const operationSchema = z.discriminatedUnion("type", [
-  z.object({ ...base, type: z.literal("create"), path: pathSchema, content: contentSchema }),
-  z.object({
-    ...base,
-    type: z.literal("edit"),
-    baseRevision: z.number().int().nonnegative(),
-    path: pathSchema,
-    content: contentSchema,
-  }),
-  z.object({
-    ...base,
-    type: z.literal("move"),
-    basePathRevision: z.number().int().nonnegative(),
-    path: pathSchema,
-  }),
-  z.object({ ...base, type: z.literal("delete"), baseRevision: z.number().int().nonnegative() }),
-]);
-
-export type Operation = z.infer<typeof operationSchema>;
-
-export const operationResultSchema = z.object({
+const identityFields = {
   opId: idSchema,
-  revision: z.number().int(),
-  previousRevision: z.number().int().nullable(),
-  previousPathRevision: z.number().int().nullable(),
-  file: fileRecordSchema.nullable(),
-  conflict: z.boolean(),
-  message: z.string().optional(),
+  fileId: idSchema,
+};
+
+const createOperationSchema = v.object({
+  ...identityFields,
+  type: v.literal("create"),
+  path: pathSchema,
+  content: contentSchema,
 });
 
-export type OperationResult = z.infer<typeof operationResultSchema>;
+const editOperationSchema = v.object({
+  ...identityFields,
+  type: v.literal("edit"),
+  baseRevision: nonNegativeIntegerSchema,
+  path: pathSchema,
+  content: contentSchema,
+});
+
+const moveOperationSchema = v.object({
+  ...identityFields,
+  type: v.literal("move"),
+  basePathRevision: nonNegativeIntegerSchema,
+  path: pathSchema,
+});
+
+const deleteOperationSchema = v.object({
+  ...identityFields,
+  type: v.literal("delete"),
+  baseRevision: nonNegativeIntegerSchema,
+});
+
+export const operationSchema = v.variant("type", [
+  createOperationSchema,
+  editOperationSchema,
+  moveOperationSchema,
+  deleteOperationSchema,
+]);
+
+export type Operation = v.InferOutput<typeof operationSchema>;
+
+export const operationResultSchema = v.object({
+  opId: idSchema,
+  revision: integerSchema,
+  previousRevision: v.nullable(integerSchema),
+  previousPathRevision: v.nullable(integerSchema),
+  file: v.nullable(fileRecordSchema),
+  conflict: v.boolean(),
+  message: v.optional(v.string()),
+});
+
+export type OperationResult = v.InferOutput<typeof operationResultSchema>;

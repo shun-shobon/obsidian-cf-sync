@@ -17,12 +17,16 @@ export class SendPending {
   async run(): Promise<void> {
     for (const operation of this.state.data.pending) {
       const local = this.state.data.files.find((file) => file.id === operation.fileId);
-      if (local && isExcluded(local.path, this.state.data.exclusions)) continue;
+      if (local && isExcluded(local.path, this.state.data.exclusions)) {
+        continue;
+      }
 
       await this.uploadContent(operation);
       await this.markAttempted(operation);
       const result = await this.api.operate(operation);
-      if (result.opId !== operation.opId) throw new Error("操作応答の ID が一致しません");
+      if (result.opId !== operation.opId) {
+        throw new Error("操作応答の ID が一致しません");
+      }
 
       await this.acknowledge(operation, result, local);
       if ("content" in operation && operation.content.kind === "blob") {
@@ -32,16 +36,23 @@ export class SendPending {
   }
 
   private async uploadContent(operation: Operation): Promise<void> {
-    if (!("content" in operation) || operation.content.kind !== "blob") return;
+    if (!("content" in operation) || operation.content.kind !== "blob") {
+      return;
+    }
 
     const blob = operation.content.blob;
     const bytes = await this.state.store.get(`blob:${blob.key}`);
-    if (!bytes) throw new Error("未送信の添付データがありません");
+    if (!bytes) {
+      throw new Error("未送信の添付データがありません");
+    }
+
     await this.api.upload(blob.key, bytes, blob.digest);
   }
 
   private async markAttempted(operation: Operation): Promise<void> {
-    if (this.state.data.attempted.includes(operation.opId)) return;
+    if (this.state.data.attempted.includes(operation.opId)) {
+      return;
+    }
 
     this.state.data.attempted.push(operation.opId);
     await this.state.persist();
@@ -59,8 +70,11 @@ export class SendPending {
       this.state.reportConflict(result.file, result.message ?? "競合内容を別名で保護しました");
     }
 
-    const savedData =
-      local && result.file ? await this.updateBaseline(local, operation, result) : undefined;
+    let savedData: StoredData | undefined;
+    if (local && result.file) {
+      savedData = await this.updateBaseline(local, operation, result);
+    }
+
     await this.state.store.save(state, savedData);
   }
 
@@ -69,19 +83,26 @@ export class SendPending {
     operation: Operation,
     result: OperationResult,
   ): Promise<StoredData | undefined> {
-    if (!result.file) return undefined;
+    if (!result.file) {
+      return undefined;
+    }
 
     // Keep local content and path until the entire outbox has drained.
     rebasePending(this.state.data.pending, local, operation, result);
     local.revision = result.file.revision;
     local.pathRevision = result.file.pathRevision;
-    if (result.file.id === local.id) return undefined;
+    if (result.file.id === local.id) {
+      return undefined;
+    }
 
     const oldId = local.id;
     local.id = result.file.id;
     for (const pending of this.state.data.pending) {
-      if (pending.fileId === oldId) pending.fileId = local.id;
+      if (pending.fileId === oldId) {
+        pending.fileId = local.id;
+      }
     }
+
     return this.documents.remap(oldId, local);
   }
 }

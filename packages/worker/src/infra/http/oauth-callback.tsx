@@ -5,21 +5,29 @@ import type { Env } from "../env";
 export function oauthCallback(c: Context<{ Bindings: Env }>) {
   const source = new URL(c.req.url);
   const target = new URL("obsidian://cf-sync-auth");
+
   for (const key of ["code", "state", "error", "error_description"]) {
     const value = source.searchParams.get(key);
-    if (value) target.searchParams.set(key, value);
+
+    if (value) {
+      target.searchParams.set(key, value);
+    }
   }
-  if (
-    !target.searchParams.get("state") ||
-    (!target.searchParams.get("code") && !target.searchParams.get("error"))
-  )
+
+  const hasState = target.searchParams.has("state");
+  const hasResult = target.searchParams.has("code") || target.searchParams.has("error");
+
+  if (!hasState || !hasResult) {
     return c.text("Invalid OAuth callback", 400);
+  }
+
   c.header("Cache-Control", "no-store");
   c.header("Referrer-Policy", "no-referrer");
   c.header(
     "Content-Security-Policy",
     "default-src 'none'; base-uri 'none'; frame-ancestors 'none'",
   );
+
   return c.render(
     <html lang="ja">
       <head>

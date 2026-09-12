@@ -20,27 +20,39 @@ export class ReconcileVault {
 
   async initialize(snapshot: Snapshot): Promise<boolean> {
     this.state.data.exclusions = snapshot.exclusions;
-    if (this.state.data.initialized) return true;
+    if (this.state.data.initialized) {
+      return true;
+    }
 
     const remoteByPath = new Map(snapshot.files.map((file) => [file.path, file]));
     const collisions = this.state.data.files.filter((local) => {
       const remote = remoteByPath.get(local.path);
+
       return remote && remote.digest !== local.digest;
     });
-    if (collisions.length && !(await this.confirmInitial(collisions.map((file) => file.path)))) {
-      return false;
+    if (collisions.length > 0) {
+      const conflictingPaths = collisions.map((file) => file.path);
+      const confirmed = await this.confirmInitial(conflictingPaths);
+      if (!confirmed) {
+        return false;
+      }
     }
 
     for (const local of this.state.data.files) {
       const remote = remoteByPath.get(local.path);
-      if (!remote || remote.digest !== local.digest) continue;
+      if (!remote || remote.digest !== local.digest) {
+        continue;
+      }
+
       this.state.data.pending = this.state.data.pending.filter((op) => op.fileId !== local.id);
       this.state.data.files = this.state.data.files.filter((file) => file.id !== local.id);
       this.documents.remove(local.id);
       await this.receive.run(remote);
     }
+
     this.state.data.initialized = true;
     await this.state.persist();
+
     return true;
   }
 
@@ -53,18 +65,24 @@ export class ReconcileVault {
     const pendingIds = new Set(this.state.data.pending.map((op) => op.fileId));
     const remoteIds = new Set(snapshot.files.map((file) => file.id));
     for (const remote of snapshot.files) {
-      if (isExcluded(remote.path, snapshot.exclusions) || pendingIds.has(remote.id)) continue;
+      if (isExcluded(remote.path, snapshot.exclusions) || pendingIds.has(remote.id)) {
+        continue;
+      }
+
       await this.receive.run(remote, undefined, context);
     }
+
     for (const local of this.state.data.files) {
-      if (
-        remoteIds.has(local.id) ||
-        isExcluded(local.path, snapshot.exclusions) ||
-        pendingIds.has(local.id)
-      )
+      const existsRemotely = remoteIds.has(local.id);
+      const excluded = isExcluded(local.path, snapshot.exclusions);
+      const hasPendingChanges = pendingIds.has(local.id);
+      if (existsRemotely || excluded || hasPendingChanges) {
         continue;
+      }
+
       await this.removeDeleted(local, context.paths);
     }
+
     this.state.data.revision = snapshot.revision;
     this.state.data.r2Revision = snapshot.r2Revision;
     await this.state.persist();
@@ -72,12 +90,17 @@ export class ReconcileVault {
 
   private async removeDeleted(local: LocalFile, paths: Set<string>): Promise<void> {
     if (paths.has(local.path)) {
-      if ((await digest(await this.vault.read(local.path))) !== local.digest) {
+      const diskBytes = await this.vault.read(local.path);
+      const diskDigest = await digest(diskBytes);
+      if (diskDigest !== local.digest) {
         await this.changes.capture(local.path);
+
         return;
       }
+
       await this.vault.remove(local.path);
     }
+
     this.state.data.files = this.state.data.files.filter((file) => file.id !== local.id);
     this.documents.remove(local.id);
     await this.state.store.delete(`doc:${local.id}`);

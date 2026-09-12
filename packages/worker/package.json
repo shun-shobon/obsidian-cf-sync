@@ -16,8 +16,8 @@
     "hono": "4.13.7",
     "jose": "6.2.12",
     "js-base64": "3.9.3",
-    "yjs": "13.6.32",
-    "zod": "4.5.4"
+    "valibot": "1.5.0",
+    "yjs": "13.6.32"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260908.1",

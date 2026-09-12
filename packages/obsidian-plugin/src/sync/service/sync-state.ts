@@ -24,36 +24,41 @@ export class SyncState {
 
   async load(): Promise<void> {
     const stored = await this.store.load();
-    if (stored) this.data = stored;
+    if (stored) {
+      this.data = stored;
+    }
   }
 
   emit(phase: SyncStatus["phase"], error?: unknown): void {
-    this.onStatus({
+    const status: SyncStatus = {
       phase,
       pending: this.data.pending.length,
       revision: this.data.revision,
       r2Revision: this.data.r2Revision,
-      ...(error === undefined
-        ? {}
-        : {
-            error:
-              error instanceof Error
-                ? error.message
-                : typeof error === "string"
-                  ? error
-                  : "同期処理に失敗しました",
-          }),
-    });
+    };
+
+    if (error !== undefined) {
+      status.error = errorMessage(error);
+    }
+
+    this.onStatus(status);
   }
 
   emitProgress(): void {
-    this.emit(
-      this.data.pending.length
-        ? "syncing"
-        : this.data.r2Revision < this.data.revision
-          ? "r2-pending"
-          : "synced",
-    );
+    if (this.data.pending.length > 0) {
+      this.emit("syncing");
+
+      return;
+    }
+
+    const awaitingR2 = this.data.r2Revision < this.data.revision;
+    if (awaitingR2) {
+      this.emit("r2-pending");
+
+      return;
+    }
+
+    this.emit("synced");
   }
 
   persist(): Promise<void> {
@@ -66,4 +71,16 @@ export class SyncState {
       this.onConflict(file, message);
     }
   }
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  return "同期処理に失敗しました";
 }

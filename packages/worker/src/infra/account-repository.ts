@@ -8,20 +8,31 @@ export class AccountRepository {
   registerDevice(input: { id: string; name: string }): Promise<Device> {
     return this.storage.transaction(async (tx) => {
       const previous = await tx.get<Device>(`device:${input.id}`);
-      if (previous?.revoked) throw new ApplicationError("forbidden", "Device revoked");
+
+      if (previous?.revoked) {
+        throw new ApplicationError("forbidden", "Device revoked");
+      }
+
       const device: Device = { ...input, revoked: false };
       await tx.put(`device:${input.id}`, device);
+
       return device;
     });
   }
 
   async devices(): Promise<Device[]> {
-    return [...(await this.storage.list<Device>({ prefix: "device:" })).values()];
+    const devices = await this.storage.list<Device>({ prefix: "device:" });
+
+    return [...devices.values()];
   }
 
   async device(id: string): Promise<Device> {
     const device = await this.storage.get<Device>(`device:${id}`);
-    if (!device) throw new ApplicationError("not-found", "Unknown device");
+
+    if (!device) {
+      throw new ApplicationError("not-found", "Unknown device");
+    }
+
     return device;
   }
 
@@ -30,12 +41,18 @@ export class AccountRepository {
   }
 
   async vaults(): Promise<VaultInfo[]> {
-    return [...(await this.storage.list<VaultInfo>({ prefix: "vault:" })).values()];
+    const vaults = await this.storage.list<VaultInfo>({ prefix: "vault:" });
+
+    return [...vaults.values()];
   }
 
   async vault(id: string): Promise<VaultInfo> {
     const vault = await this.storage.get<VaultInfo>(`vault:${id}`);
-    if (!vault) throw new ApplicationError("not-found", "Unknown vault");
+
+    if (!vault) {
+      throw new ApplicationError("not-found", "Unknown vault");
+    }
+
     return vault;
   }
 

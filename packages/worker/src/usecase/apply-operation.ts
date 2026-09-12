@@ -17,7 +17,10 @@ export class ApplyOperation {
 
   async execute(operation: Operation): Promise<OperationResult> {
     const previous = await this.repository.operationResult(operation.opId);
-    if (previous) return previous;
+
+    if (previous) {
+      return previous;
+    }
 
     const meta = await this.repository.meta();
     const files = await this.repository.files();
@@ -28,6 +31,7 @@ export class ApplyOperation {
     await this.repository.commit(meta, files, changes);
     await this.repository.schedule();
     this.broadcast(operation, changes.result);
+
     return changes.result;
   }
 
@@ -38,8 +42,10 @@ export class ApplyOperation {
   ): void {
     const currentExcluded = current && isExcluded(current.file.path, meta.exclusions);
     const targetExcluded = "path" in operation && isExcluded(operation.path, meta.exclusions);
-    if (currentExcluded || targetExcluded)
+
+    if (currentExcluded || targetExcluded) {
       throw new ApplicationError("conflict", "Path is excluded");
+    }
   }
 
   private async prepare(
@@ -83,6 +89,7 @@ export class ApplyOperation {
     }
 
     changes.result.revision = meta.revision;
+
     return changes;
   }
 
@@ -93,6 +100,7 @@ export class ApplyOperation {
       revision: result.revision,
       fileId: operation.fileId,
     });
+
     if (result.file && result.file.id !== operation.fileId) {
       this.sockets.broadcast({
         type: "changed",

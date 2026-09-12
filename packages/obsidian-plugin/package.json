@@ -13,10 +13,10 @@
     "@cf-sync/protocol": "workspace:*",
     "js-base64": "3.9.3",
     "lib0": "0.2.117",
+    "valibot": "1.5.0",
     "y-codemirror.next": "0.3.6",
     "y-protocols": "1.0.7",
-    "yjs": "13.6.32",
-    "zod": "4.5.4"
+    "yjs": "13.6.32"
   },
   "devDependencies": {
     "@codemirror/commands": "6.11.0",

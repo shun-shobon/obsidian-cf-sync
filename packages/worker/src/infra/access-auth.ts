@@ -7,16 +7,24 @@ import type { Env } from "./env";
 const keySets = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
 export async function authenticate(request: Request, env: Env): Promise<void> {
-  if (!env.ACCESS_TEAM_DOMAIN || !env.ACCESS_AUD || !env.OWNER_EMAIL)
+  if (!env.ACCESS_TEAM_DOMAIN || !env.ACCESS_AUD || !env.OWNER_EMAIL) {
     throw new ApplicationError("unavailable", "Access is not configured");
+  }
+
   const assertion = request.headers.get("Cf-Access-Jwt-Assertion");
-  if (!assertion) throw new ApplicationError("unauthenticated", "Access assertion required");
+
+  if (!assertion) {
+    throw new ApplicationError("unauthenticated", "Access assertion required");
+  }
+
   const issuer = `https://${env.ACCESS_TEAM_DOMAIN}`;
   let keys = keySets.get(issuer);
+
   if (!keys) {
     keys = createRemoteJWKSet(new URL(`${issuer}/cdn-cgi/access/certs`));
     keySets.set(issuer, keys);
   }
+
   try {
     const { payload } = await jwtVerify(assertion, keys, {
       issuer,
@@ -24,11 +32,16 @@ export async function authenticate(request: Request, env: Env): Promise<void> {
       algorithms: ["RS256"],
       requiredClaims: ["exp", "sub", "email"],
     });
-    if (
-      typeof payload["email"] !== "string" ||
-      payload["email"].toLowerCase() !== env.OWNER_EMAIL.toLowerCase()
-    )
+
+    const email = payload["email"];
+
+    if (typeof email !== "string") {
+      throw new Error("Owner email missing");
+    }
+
+    if (email.toLowerCase() !== env.OWNER_EMAIL.toLowerCase()) {
       throw new Error("Owner mismatch");
+    }
   } catch {
     throw new ApplicationError("unauthenticated", "Invalid Access identity");
   }

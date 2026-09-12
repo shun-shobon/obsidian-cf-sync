@@ -11,12 +11,14 @@ export function applyMove(
   meta: VaultMeta,
   changes: OperationChanges,
 ): void {
-  if (!current) throw new ApplicationError("not-found", "File not found");
+  if (!current) {
+    throw new ApplicationError("not-found", "File not found");
+  }
 
-  if (
-    current.file.pathRevision !== operation.basePathRevision ||
-    hasPathCollision(operation.path, files, operation.fileId)
-  ) {
+  const pathChanged = current.file.pathRevision !== operation.basePathRevision;
+  const destinationOccupied = hasPathCollision(operation.path, files, operation.fileId);
+
+  if (pathChanged || destinationOccupied) {
     changes.result.conflict = true;
     changes.result.message = "Move rejected: path changed or destination occupied";
     changes.result.file = current.file;

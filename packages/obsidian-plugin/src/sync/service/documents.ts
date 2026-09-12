@@ -18,35 +18,51 @@ export class Documents {
 
   async open(file: LocalFile): Promise<Y.Doc> {
     const existing = this.docs.get(file.id);
-    if (existing) return existing;
+    if (existing) {
+      return existing;
+    }
 
     const doc = new Y.Doc();
     const stored = await this.store.get(`doc:${file.id}`);
-    if (stored) Y.applyUpdate(doc, stored, "remote");
+    if (stored) {
+      Y.applyUpdate(doc, stored, "remote");
+    }
+
     this.docs.set(file.id, doc);
     doc.on("update", (_update: Uint8Array, origin: unknown) => {
-      if (origin !== "remote" && origin !== "capture") this.onEdit(file, doc);
+      const isEditorUpdate = origin !== "remote" && origin !== "capture";
+      if (isEditorUpdate) {
+        this.onEdit(file, doc);
+      }
     });
+
     return doc;
   }
 
   async retain(file: LocalFile): Promise<Y.Doc> {
     const doc = await this.open(file);
     this.references.set(doc, (this.references.get(doc) ?? 0) + 1);
+
     return doc;
   }
 
   release(doc: Y.Doc): void {
     const count = this.references.get(doc);
-    if (count === undefined) return;
-    if (count > 1) {
-      this.references.set(doc, count - 1);
+    if (count === undefined) {
       return;
     }
+
+    if (count > 1) {
+      this.references.set(doc, count - 1);
+
+      return;
+    }
+
     this.references.delete(doc);
     for (const [id, current] of this.docs) {
       if (current === doc) {
         this.remove(id);
+
         return;
       }
     }
@@ -62,17 +78,27 @@ export class Documents {
     if (doc) {
       this.docs.delete(oldId);
       this.docs.set(file.id, doc);
+
       return { key: `doc:${file.id}`, value: Y.encodeStateAsUpdate(doc) };
     }
-    if (file.kind !== "text") return undefined;
+
+    if (file.kind !== "text") {
+      return undefined;
+    }
 
     const stored = await this.store.get(`doc:${oldId}`);
-    if (!stored) throw new Error("競合ノートのローカル CRDT 状態がありません");
+    if (!stored) {
+      throw new Error("競合ノートのローカル CRDT 状態がありません");
+    }
+
     return { key: `doc:${file.id}`, value: stored };
   }
 
   dispose(): void {
-    for (const doc of this.docs.values()) doc.destroy();
+    for (const doc of this.docs.values()) {
+      doc.destroy();
+    }
+
     this.docs.clear();
     this.references.clear();
   }

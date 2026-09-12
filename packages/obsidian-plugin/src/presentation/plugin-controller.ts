@@ -1,5 +1,6 @@
 import { pathSchema } from "@cf-sync/protocol";
 import { Notice, type App } from "obsidian";
+import * as v from "valibot";
 
 import type { Settings } from "../domain/plugin-settings";
 import { OAuthClient } from "../infra/auth/oauth-client";
@@ -79,12 +80,16 @@ export class PluginController {
   }
 
   async changeServer(value: string) {
-    if (this.config.server === value) return;
+    if (this.config.server === value) {
+      return;
+    }
+
     if (this.config.vaultId) {
       throw new Error(
         "接続先 Vault が設定済みです。別サーバーには別のローカル Vault を使用してください",
       );
     }
+
     await this.auth?.logout();
     this.auth = undefined;
     this.config.auth = {};
@@ -93,7 +98,10 @@ export class PluginController {
   }
 
   async selectVault(id: string) {
-    if (!id) return;
+    if (!id) {
+      return;
+    }
+
     this.config.vaultId = id;
     await this.persist();
     await this.connect();
@@ -106,20 +114,29 @@ export class PluginController {
 
   async revokeDevice(id: string) {
     await this.api().revokeDevice(id);
-    if (id === this.config.deviceId) await this.logout();
+
+    if (id === this.config.deviceId) {
+      await this.logout();
+    }
   }
 
   async saveExclusions(paths: string[]) {
-    await this.api().exclusions(paths.map((path) => pathSchema.parse(path)));
+    const exclusions = v.parse(v.array(pathSchema), paths);
+    await this.api().exclusions(exclusions);
     await this.engine?.syncNow();
   }
 
   async setPaused(paused: boolean) {
     this.config.paused = paused;
     await this.persist();
-    if (paused) this.engine?.pause();
-    else if (this.engine) await this.engine.resume();
-    else await this.connect();
+
+    if (paused) {
+      this.engine?.pause();
+    } else if (this.engine) {
+      await this.engine.resume();
+    } else {
+      await this.connect();
+    }
   }
 
   connect(): Promise<void> {
@@ -130,10 +147,23 @@ export class PluginController {
   }
 
   private async startEngine() {
-    if (this.stopped || !this.config.server || !this.config.vaultId) return;
+    if (this.stopped) {
+      return;
+    }
+
+    const hasConnection = Boolean(this.config.server && this.config.vaultId);
+
+    if (!hasConnection) {
+      return;
+    }
+
     await this.engine?.dispose();
     this.engine = this.createEngine();
-    if (this.config.paused) this.engine.pause();
+
+    if (this.config.paused) {
+      this.engine.pause();
+    }
+
     await this.engine.start();
     this.app.workspace.updateOptions();
   }
@@ -157,7 +187,10 @@ export class PluginController {
   }
 
   async syncNow() {
-    if (!this.engine) await this.connect();
+    if (!this.engine) {
+      await this.connect();
+    }
+
     await this.engine?.syncNow();
   }
 
@@ -170,7 +203,12 @@ export class PluginController {
   }
 
   report(error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
+    let message = String(error);
+
+    if (error instanceof Error) {
+      message = error.message;
+    }
+
     new Notice(`CF Sync: ${message}`, 10000);
     this.displayStatus(message);
   }

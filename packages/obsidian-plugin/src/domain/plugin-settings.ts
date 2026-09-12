@@ -1,18 +1,19 @@
-import { z } from "zod";
+import { idSchema } from "@cf-sync/protocol";
+import * as v from "valibot";
 
 import { authStateSchema } from "./auth-state";
 
-export const settingsSchema = z.object({
-  server: z.string(),
-  deviceId: z.string().uuid(),
-  deviceName: z.string(),
-  localId: z.string().uuid(),
-  vaultId: z.string(),
-  paused: z.boolean(),
+export const settingsSchema = v.object({
+  server: v.string(),
+  deviceId: idSchema,
+  deviceName: v.string(),
+  localId: idSchema,
+  vaultId: v.string(),
+  paused: v.boolean(),
   auth: authStateSchema,
 });
 
-export type Settings = z.infer<typeof settingsSchema>;
+export type Settings = v.InferOutput<typeof settingsSchema>;
 
 export function initialSettings(deviceName: string): Settings {
   return {

@@ -1,7 +1,15 @@
 import type { BlobRef } from "@cf-sync/protocol";
-import { z } from "zod";
+import * as v from "valibot";
 
 import { ApplicationError } from "../domain/errors";
+
+const contentSizeSchema = v.pipe(
+  v.string(),
+  v.transform(Number),
+  v.number(),
+  v.safeInteger(),
+  v.minValue(0),
+);
 
 export class BlobStorage {
   constructor(
@@ -11,37 +19,54 @@ export class BlobStorage {
 
   async get(key: string): Promise<R2ObjectBody> {
     const object = await this.bucket.get(this.key(key));
-    if (!object) throw new ApplicationError("not-found", "Blob not found");
+
+    if (!object) {
+      throw new ApplicationError("not-found", "Blob not found");
+    }
+
     return object;
   }
 
   async validate(blob: BlobRef): Promise<void> {
     const object = await this.bucket.head(this.key(blob.key));
-    if (!object || object.size !== blob.size || object.customMetadata?.["digest"] !== blob.digest) {
+
+    if (!object) {
+      throw new ApplicationError("invalid-input", "Blob is missing or does not match");
+    }
+
+    const sizeMatches = object.size === blob.size;
+    const digestMatches = object.customMetadata?.["digest"] === blob.digest;
+
+    if (!sizeMatches || !digestMatches) {
       throw new ApplicationError("invalid-input", "Blob is missing or does not match");
     }
   }
 
   async upload(key: string, expected: string, request: Request): Promise<BlobRef> {
     const previous = await this.bucket.head(this.key(key));
+
     if (previous) {
-      if (previous.customMetadata?.["digest"] !== expected)
+      if (previous.customMetadata?.["digest"] !== expected) {
         throw new ApplicationError("conflict", "Blob id reused with different content");
+      }
+
       return { key, size: previous.size, digest: expected };
     }
 
-    if (!request.body) throw new ApplicationError("invalid-input", "Missing body");
+    if (!request.body) {
+      throw new ApplicationError("invalid-input", "Missing body");
+    }
+
     const abort = new AbortController();
 
     try {
-      const length = z.coerce
-        .number()
-        .int()
-        .nonnegative()
-        .safe()
-        .parse(request.headers.get("X-Content-Size"));
-      if (!request.headers.has("X-Content-Size"))
+      const sizeHeader = request.headers.get("X-Content-Size");
+
+      if (sizeHeader === null) {
         throw new ApplicationError("length-required", "X-Content-Size required");
+      }
+
+      const length = v.parse(contentSizeSchema, sizeHeader);
       const stream = new FixedLengthStream(length);
       const writing = request.body.pipeTo(stream.writable, { signal: abort.signal });
       const [object] = await Promise.all([
@@ -51,11 +76,19 @@ export class BlobStorage {
         }),
         writing,
       ]);
-      if (!object) throw new Error("Blob write failed");
+
+      if (!object) {
+        throw new Error("Blob write failed");
+      }
+
       return { key, size: object.size, digest: expected };
     } catch (error) {
       abort.abort(error);
-      if (error instanceof ApplicationError) throw error;
+
+      if (error instanceof ApplicationError) {
+        throw error;
+      }
+
       console.error(error);
       throw new ApplicationError(
         "invalid-input",
@@ -67,18 +100,31 @@ export class BlobStorage {
   async collectUnreferenced(referenced: Set<string>): Promise<void> {
     let cursor: string | undefined;
 
-    do {
-      const listing = await this.bucket.list({
-        prefix: `staging/${this.vaultId}/`,
-        ...(cursor ? { cursor } : {}),
-      });
+    while (true) {
+      const options: R2ListOptions = { prefix: `staging/${this.vaultId}/` };
+
+      if (cursor) {
+        options.cursor = cursor;
+      }
+
+      const listing = await this.bucket.list(options);
+
       for (const object of listing.objects) {
         const key = object.key.slice(object.key.lastIndexOf("/") + 1);
-        if (!referenced.has(key) && object.uploaded.getTime() < Date.now() - 86_400_000)
+        const isReferenced = referenced.has(key);
+        const isExpired = object.uploaded.getTime() < Date.now() - 86_400_000;
+
+        if (!isReferenced && isExpired) {
           await this.bucket.delete(object.key);
+        }
       }
-      cursor = listing.truncated ? listing.cursor : undefined;
-    } while (cursor);
+
+      if (!listing.truncated) {
+        return;
+      }
+
+      cursor = listing.cursor;
+    }
   }
 
   private key(key: string): string {

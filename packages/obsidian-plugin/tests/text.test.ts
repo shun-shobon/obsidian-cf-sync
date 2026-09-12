@@ -19,6 +19,7 @@ it.each([
 
   expect(doc.getText("content").toString()).toBe(expected);
   expect(replica.getText("content").toString()).toBe(expected);
+
   doc.destroy();
   replica.destroy();
 });

@@ -32,26 +32,42 @@ export async function applyContentChange(
 ): Promise<void> {
   const target = resolveTarget(operation, current, files);
   meta.revision++;
-  const previous = target.merge && current ? await repository.content(current) : undefined;
+  let previous: Content | undefined;
+  let pathRevision = meta.revision;
+  let conflict = target.conflict;
+
+  if (target.merge && current) {
+    previous = await repository.content(current);
+    pathRevision = current.file.pathRevision;
+    conflict ||= current.file.conflict;
+  }
+
   const write = await prepareContent(operation.content, previous, blobs);
   const file = {
     id: target.id,
     path: target.path,
     kind: operation.content.kind,
     revision: meta.revision,
-    pathRevision: target.merge && current ? current.file.pathRevision : meta.revision,
+    pathRevision,
     digest: write.digest,
     size: write.size,
-    conflict: target.conflict || (target.merge && !!current?.file.conflict),
+    conflict,
   };
 
   changes.result.file = file;
   changes.result.conflict = target.conflict;
-  if (target.conflict) changes.result.message = "Concurrent contents preserved as conflict copy";
-  changes.writes.push({
-    stored: { file, ...write.stored },
-    ...(write.update ? { update: write.update } : {}),
-  });
+
+  if (target.conflict) {
+    changes.result.message = "Concurrent contents preserved as conflict copy";
+  }
+
+  const fileWrite: FileWrite = { stored: { file, ...write.stored } };
+
+  if (write.update) {
+    fileWrite.update = write.update;
+  }
+
+  changes.writes.push(fileWrite);
   changes.dirty.add(target.path);
 }
 
@@ -60,20 +76,19 @@ function resolveTarget(
   current: StoredFile | undefined,
   files: StoredFile[],
 ): ContentTarget {
-  if (operation.type === "create" && current)
+  if (operation.type === "create" && current) {
     throw new ApplicationError("conflict", "File id already exists");
-  const path = current ? current.file.path : operation.path;
+  }
+
+  const path = current?.file.path ?? operation.path;
   const deleted = operation.type === "edit" && !current;
   const changedKind = current && current.file.kind !== operation.content.kind;
-  const changedBlob =
-    current &&
-    operation.type === "edit" &&
-    operation.content.kind === "blob" &&
-    operation.baseRevision !== current.file.revision;
+  const changedBlob = hasStaleBlobEdit(operation, current);
   const occupied = !current && hasPathCollision(path, files);
 
   if (deleted || changedKind || changedBlob || occupied) {
     const id = crypto.randomUUID();
+
     return { id, path: allocateConflictPath(path, files, id), merge: false, conflict: true };
   }
 
@@ -83,6 +98,18 @@ function resolveTarget(
     merge: operation.type === "edit" && !!current,
     conflict: false,
   };
+}
+
+function hasStaleBlobEdit(operation: ContentOperation, current: StoredFile | undefined): boolean {
+  if (!current || operation.type !== "edit") {
+    return false;
+  }
+
+  if (operation.content.kind !== "blob") {
+    return false;
+  }
+
+  return operation.baseRevision !== current.file.revision;
 }
 
 async function prepareContent(
@@ -97,6 +124,7 @@ async function prepareContent(
 }> {
   if (content.kind === "blob") {
     await blobs.validate(content.blob);
+
     return {
       stored: { chunks: 0, blob: content.blob },
       size: content.blob.size,
@@ -104,7 +132,11 @@ async function prepareContent(
     };
   }
 
-  if (previous && previous.kind !== "text") throw new Error("Kind mismatch");
+  if (previous && previous.kind !== "text") {
+    throw new Error("Kind mismatch");
+  }
+
   const merged = await mergeText(content.update, previous?.update);
+
   return { stored: { chunks: Math.ceil(merged.update.length / TEXT_CHUNK_SIZE) }, ...merged };
 }

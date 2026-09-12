@@ -35,7 +35,13 @@ export class SyncEngine {
     );
     this.documents = new Documents(store, (file, doc) => this.editorChanged(file, doc));
     this.changes = new LocalChanges(this.state, vault, this.documents, () => {
-      this.state.emit(this.paused ? "paused" : "syncing");
+      if (this.paused) {
+        this.state.emit("paused");
+
+        return;
+      }
+
+      this.state.emit("syncing");
     });
     this.receiveFile = new ReceiveFile(this.state, vault, api, this.documents, this.changes);
     this.reconcile = new ReconcileVault(
@@ -91,13 +97,21 @@ export class SyncEngine {
 
   getDoc(path: string): Y.Doc | undefined {
     const file = this.state.data.files.find((file) => file.path === path);
-    return file ? this.documents.get(file.id) : undefined;
+    if (!file) {
+      return undefined;
+    }
+
+    return this.documents.get(file.id);
   }
 
   ensureDoc(path: string): Promise<Y.Doc | undefined> {
     return this.enqueue(async () => {
       const file = this.state.data.files.find((file) => file.path === path);
-      return file?.kind === "text" ? this.documents.retain(file) : undefined;
+      if (file?.kind !== "text") {
+        return undefined;
+      }
+
+      return this.documents.retain(file);
     });
   }
 
@@ -121,24 +135,37 @@ export class SyncEngine {
 
   captureRename(oldPath: string, path: string): Promise<void> {
     return this.enqueue(async () => {
-      if (await this.changes.rename(oldPath, path)) this.schedule();
+      if (await this.changes.rename(oldPath, path)) {
+        this.schedule();
+      }
     });
   }
 
   syncNow(): Promise<void> {
     return this.enqueue(async () => {
-      if (this.paused || this.disposed) return;
+      if (this.paused || this.disposed) {
+        return;
+      }
+
       clearTimeout(this.timer);
       this.state.emit("syncing");
       try {
         await this.recovery.run();
         await this.connect();
-        if (!(await this.reconcile.initialize(await this.options.api.snapshot()))) {
+
+        const initialSnapshot = await this.options.api.snapshot();
+        const initialized = await this.reconcile.initialize(initialSnapshot);
+        if (!initialized) {
           this.pause();
+
           return;
         }
+
         await this.sendPending.run();
-        await this.reconcile.run(await this.options.api.snapshot());
+
+        const snapshot = await this.options.api.snapshot();
+        await this.reconcile.run(snapshot);
+
         this.state.emitProgress();
         this.schedule(10_000);
       } catch (error) {
@@ -151,11 +178,15 @@ export class SyncEngine {
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
     const result = this.serial.then(work);
     this.serial = result.catch((error: unknown) => this.state.emit("error", error));
+
     return result;
   }
 
   private schedule(delay = 250): void {
-    if (this.disposed || this.paused) return;
+    if (this.disposed || this.paused) {
+      return;
+    }
+
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       void this.syncNow();
@@ -163,7 +194,10 @@ export class SyncEngine {
   }
 
   private async connect(): Promise<void> {
-    if (this.socket) return;
+    if (this.socket) {
+      return;
+    }
+
     this.socket = await this.options.api.connect(
       (message) => this.receive(message),
       () => {
@@ -175,7 +209,10 @@ export class SyncEngine {
 
   private editorChanged(file: LocalFile, doc: Y.Doc): void {
     void this.enqueue(async () => {
-      if (this.disposed || isExcluded(file.path, this.state.data.exclusions)) return;
+      if (this.disposed || isExcluded(file.path, this.state.data.exclusions)) {
+        return;
+      }
+
       await this.changes.editorChanged(file, doc);
       this.schedule();
     }).catch(() => {});
@@ -192,22 +229,33 @@ export class SyncEngine {
         await this.state.persist();
         this.state.emitProgress();
       }).catch(() => {});
-    } else this.schedule(100);
+    } else {
+      this.schedule(100);
+    }
   }
 
   private async receiveChange(
     message: Extract<ServerMessage, { type: "changed" | "text" }>,
   ): Promise<void> {
-    if (this.paused || this.disposed) return;
-    if (this.state.data.pending.some((op) => op.fileId === message.fileId)) {
-      this.schedule();
+    if (this.paused || this.disposed) {
       return;
     }
+
+    const hasPendingChanges = this.state.data.pending.some(
+      (operation) => operation.fileId === message.fileId,
+    );
+    if (hasPendingChanges) {
+      this.schedule();
+
+      return;
+    }
+
     try {
       const document = await this.options.api.document(message.fileId);
       if (!isExcluded(document.file.path, this.state.data.exclusions)) {
         await this.receiveFile.run(document.file, document);
       }
+
       this.state.data.revision = Math.max(this.state.data.revision, message.revision);
       await this.state.persist();
       this.state.emit("r2-pending");

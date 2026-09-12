@@ -20,7 +20,10 @@ export class Server {
 
   api: ApiPort = {
     snapshot: async () => {
-      if (this.offline) throw Error("offline");
+      if (this.offline) {
+        throw Error("offline");
+      }
+
       return {
         revision: this.revision,
         r2Revision: this.revision,
@@ -30,6 +33,7 @@ export class Server {
     },
     document: async (id) => {
       const value = this.docs.get(id)!;
+
       return {
         file: { ...value.file },
         content: { kind: "text", update: fromUint8Array(Y.encodeStateAsUpdate(value.doc)) },
@@ -46,11 +50,16 @@ export class Server {
   };
 
   private async operate(operation: Operation): Promise<OperationResult> {
-    if (this.offline) throw Error("offline");
+    if (this.offline) {
+      throw Error("offline");
+    }
+
     this.calls.push(operation.opId);
     this.operations.push(structuredClone(operation));
     const saved = this.results.get(operation.opId);
-    if (saved) return saved;
+    if (saved) {
+      return saved;
+    }
 
     const previous = this.docs.get(operation.fileId)?.file;
     const previousRevision = previous?.revision ?? null;
@@ -69,6 +78,7 @@ export class Server {
       this.failAfterSave = false;
       throw Error("response lost");
     }
+
     return result;
   }
 
@@ -77,6 +87,7 @@ export class Server {
   ): Promise<{ file: FileRecord | null; conflict: boolean }> {
     if (operation.type === "delete") {
       this.docs.delete(operation.fileId);
+
       return { file: null, conflict: false };
     }
 
@@ -84,16 +95,19 @@ export class Server {
     if ("content" in operation && operation.content.kind === "text") {
       Y.applyUpdate(value.doc, toUint8Array(operation.content.update));
     }
+
     const conflict =
       operation.type === "move" && operation.basePathRevision !== value.file.pathRevision;
     if (operation.type === "move" && !conflict) {
       value.file.path = operation.path;
       value.file.pathRevision = this.revision + 1;
     }
+
     const bytes = new TextEncoder().encode(value.doc.getText("content").toString());
     value.file.digest = await digest(bytes);
     value.file.size = bytes.length;
     value.file.revision = this.revision + 1;
+
     return { file: { ...value.file }, conflict };
   }
 
@@ -112,6 +126,7 @@ export class Server {
       },
     };
     this.docs.set(operation.fileId, value);
+
     return value;
   }
 }

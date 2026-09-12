@@ -1,6 +1,6 @@
 import type { ErrorHandler, NotFoundHandler } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { ZodError } from "zod";
+import * as v from "valibot";
 
 import { ApplicationError, type ErrorKind } from "../../domain/errors";
 
@@ -16,10 +16,16 @@ const statusByKind: Record<ErrorKind, ContentfulStatusCode> = {
 };
 
 export const onError: ErrorHandler = (error, c) => {
-  if (error instanceof ApplicationError)
+  if (error instanceof ApplicationError) {
     return c.json({ error: error.message }, statusByKind[error.kind]);
-  if (error instanceof ZodError) return c.json({ error: error.message }, 400);
+  }
+
+  if (error instanceof v.ValiError) {
+    return c.json({ error: error.message }, 400);
+  }
+
   console.error(error);
+
   return c.json({ error: "Internal server error" }, 500);
 };
 

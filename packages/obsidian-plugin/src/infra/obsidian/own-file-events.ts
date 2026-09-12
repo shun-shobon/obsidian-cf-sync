@@ -18,33 +18,58 @@ export class OwnFileEvents {
   /** Consume an expected event when it arrives, including after its API call resolves. */
   async isOwnEvent(event: FileEvent): Promise<boolean> {
     if (event.type === "create" || event.type === "modify") {
-      const candidates = [...this.expected].filter(
-        (entry) => entry.type === event.type && entry.path === event.path,
-      );
-      if (!candidates.length) return false;
-      if (this.vault.getAbstractFileByPath(event.path) !== event.file) return false;
-      const hash = await digest(new Uint8Array(await this.vault.readBinary(event.file)));
-      for (const entry of candidates) {
-        if ("digest" in entry && entry.digest === hash && this.expected.delete(entry)) return true;
+      return this.consumeContentEvent(event);
+    }
+
+    for (const entry of this.expected) {
+      if (!matchesFileOperation(entry, event)) {
+        continue;
       }
-      // A different content version is an external edit. Do not keep an old marker
-      // that could suppress a later edit back to the previously written contents.
-      for (const entry of candidates) this.expected.delete(entry);
+
+      this.expected.delete(entry);
+
+      return true;
+    }
+
+    return false;
+  }
+
+  private async consumeContentEvent(event: FileEvent): Promise<boolean> {
+    const candidates = [...this.expected].filter(
+      (entry) => entry.type === event.type && entry.path === event.path,
+    );
+
+    if (!candidates.length) {
       return false;
     }
-    for (const entry of this.expected) {
-      if (
-        entry.type === event.type &&
-        "file" in entry &&
-        entry.file === event.file &&
-        (event.type === "rename"
-          ? entry.type === "rename" && entry.oldPath === event.oldPath
-          : entry.path === event.path)
-      ) {
-        this.expected.delete(entry);
+
+    if (this.vault.getAbstractFileByPath(event.path) !== event.file) {
+      return false;
+    }
+
+    const content = new Uint8Array(await this.vault.readBinary(event.file));
+    const hash = await digest(content);
+
+    for (const entry of candidates) {
+      if (!("digest" in entry)) {
+        continue;
+      }
+
+      if (entry.digest !== hash) {
+        continue;
+      }
+
+      if (this.expected.delete(entry)) {
         return true;
       }
     }
+
+    // Different content means an external edit. Remove old markers so a later
+    // external edit back to the previous content is not mistaken for our write.
+    for (const entry of candidates) {
+      this.expected.delete(entry);
+    }
+
     return false;
   }
 
@@ -61,4 +86,24 @@ export class OwnFileEvents {
   discard(event: ExpectedEvent) {
     this.expected.delete(event);
   }
+}
+
+function matchesFileOperation(entry: ExpectedEvent, event: FileEvent): boolean {
+  if (entry.type !== event.type) {
+    return false;
+  }
+
+  if (!("file" in entry)) {
+    return false;
+  }
+
+  if (entry.file !== event.file) {
+    return false;
+  }
+
+  if (event.type === "rename") {
+    return entry.type === "rename" && entry.oldPath === event.oldPath;
+  }
+
+  return entry.path === event.path;
 }

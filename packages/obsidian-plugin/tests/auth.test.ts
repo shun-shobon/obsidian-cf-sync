@@ -1,8 +1,12 @@
+import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 
-import type { AuthState } from "../src/domain/auth-state";
+import { authStateSchema, metadataSchema, type AuthState } from "../src/domain/auth-state";
+import { initialSettings, settingsSchema } from "../src/domain/plugin-settings";
 import { serverOrigin } from "../src/domain/server-origin";
+import { urlSchema } from "../src/domain/url-schema";
 import { OAuthClient } from "../src/infra/auth/oauth-client";
+import { tokenResponseSchema } from "../src/infra/auth/oauth-provider";
 import { challenge } from "../src/infra/auth/pkce";
 import type { HttpRequest, Transport } from "../src/infra/http/transport";
 
@@ -115,5 +119,81 @@ describe("Managed OAuth", () => {
     });
     await expect(refresh).rejects.toThrow("変更");
     expect(state.tokens).toBeUndefined();
+  });
+});
+
+describe("authentication validation", () => {
+  it.each(["not a URL", "http://team.cloudflareaccess.com/token"])(
+    "rejects invalid OAuth endpoints without throwing outside validation: %s",
+    (tokenEndpoint) => {
+      const result = v.safeParse(metadataSchema, {
+        ...metadata,
+        token_endpoint: tokenEndpoint,
+      });
+
+      expect(result.success).toBe(false);
+    },
+  );
+
+  it.each([Infinity, -Infinity, NaN])(
+    "rejects non-finite authentication timestamps: %s",
+    (value) => {
+      const state = {
+        pending: { state: "login", verifier: "a".repeat(43), createdAt: value },
+        tokens: { accessToken: "access", refreshToken: "refresh", expiresAt: value },
+      };
+
+      expect(v.safeParse(authStateSchema, state).success).toBe(false);
+      expect(
+        v.safeParse(tokenResponseSchema, {
+          access_token: "access",
+          expires_in: value,
+          token_type: "Bearer",
+        }).success,
+      ).toBe(false);
+    },
+  );
+
+  it("preserves optional refresh responses and removes unknown stored fields", () => {
+    const response = v.parse(tokenResponseSchema, {
+      access_token: "access",
+      expires_in: 900,
+      token_type: "bEaReR",
+      extra: "ignored",
+    });
+    const state = v.parse(authStateSchema, { extra: "ignored" });
+
+    expect(response).toEqual({ access_token: "access", expires_in: 900, token_type: "bEaReR" });
+    expect(state).toEqual({});
+  });
+
+  it.each(["00000000-0000-4000-0000-000000000000", "123e4567-e89b-92d3-a456-426614174000"])(
+    "rejects non-RFC device identifiers in saved settings: %s",
+    (deviceId) => {
+      const settings = initialSettings("desktop");
+      settings.deviceId = deviceId;
+
+      expect(v.safeParse(settingsSchema, settings).success).toBe(false);
+    },
+  );
+});
+
+describe("URL validation", () => {
+  it.each([
+    ["  https://team.cloudflareaccess.com/token  ", "https://team.cloudflareaccess.com/token"],
+    ["https://team.cloud\tflareaccess.com/to\nke\rn", "https://team.cloudflareaccess.com/token"],
+    [" \twss://sync.example.com/w\ns?ticket=abc\r ", "wss://sync.example.com/ws?ticket=abc"],
+    ["HTTPS://EXAMPLE.COM:443/Token", "HTTPS://EXAMPLE.COM:443/Token"],
+  ])("normalizes URL whitespace without rewriting other components: %s", (input, expected) => {
+    expect(v.parse(urlSchema, input)).toBe(expected);
+  });
+
+  it("normalizes OAuth metadata before storing endpoints for HTTP requests", () => {
+    const parsed = v.parse(metadataSchema, {
+      ...metadata,
+      token_endpoint: "  https://team.cloudflareaccess.com/to\tken\n  ",
+    });
+
+    expect(parsed.token_endpoint).toBe(metadata.token_endpoint);
   });
 });

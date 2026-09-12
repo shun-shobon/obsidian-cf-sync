@@ -22,10 +22,15 @@ export class FlushVault {
       await this.deleteFiles(meta, files, paths);
       await this.repository.markFlushed(meta, paths);
       this.sockets.broadcast({ type: "r2", revision: meta.r2Revision });
-      await this.archive.collectUnreferenced(
-        meta.vaultId,
-        new Set(files.flatMap((item) => (item.blob ? [item.blob.key] : []))),
-      );
+      const referencedBlobs = new Set<string>();
+
+      for (const item of files) {
+        if (item.blob) {
+          referencedBlobs.add(item.blob.key);
+        }
+      }
+
+      await this.archive.collectUnreferenced(meta.vaultId, referencedBlobs);
     } finally {
       await this.repository.scheduleMaintenance(this.sockets.hasConnections);
     }
@@ -33,9 +38,14 @@ export class FlushVault {
 
   private async writeFiles(meta: VaultMeta, files: StoredFile[], paths: string[]): Promise<void> {
     // Complete writes before deletes so a failed rename retains the previous R2 copy.
+
     for (const path of paths) {
       const stored = files.find((item) => item.file.path === path);
-      if (!stored || isExcluded(path, meta.exclusions)) continue;
+
+      if (!stored || isExcluded(path, meta.exclusions)) {
+        continue;
+      }
+
       const content = await this.repository.content(stored);
       await this.archive.write(meta.vaultId, path, content);
     }
@@ -43,7 +53,10 @@ export class FlushVault {
 
   private async deleteFiles(meta: VaultMeta, files: StoredFile[], paths: string[]): Promise<void> {
     for (const path of paths) {
-      if (!files.some((item) => item.file.path === path) && !isExcluded(path, meta.exclusions)) {
+      const exists = files.some((item) => item.file.path === path);
+      const excluded = isExcluded(path, meta.exclusions);
+
+      if (!exists && !excluded) {
         await this.archive.delete(meta.vaultId, path);
       }
     }

@@ -1,31 +1,35 @@
-import { z } from "zod";
+import * as v from "valibot";
 
 import { contentSchema } from "./content";
 import { idSchema } from "./identity";
+import { integerSchema } from "./numbers";
 import { pathSchema } from "./paths";
 
-export const fileRecordSchema = z.object({
+export const fileRecordSchema = v.object({
   id: idSchema,
   path: pathSchema,
-  kind: z.enum(["text", "blob"]),
-  revision: z.number().int(),
-  pathRevision: z.number().int(),
-  digest: z.string(),
-  size: z.number().int(),
-  conflict: z.boolean(),
+  kind: v.picklist(["text", "blob"]),
+  revision: integerSchema,
+  pathRevision: integerSchema,
+  digest: v.string(),
+  size: integerSchema,
+  conflict: v.boolean(),
 });
 
-export type FileRecord = z.infer<typeof fileRecordSchema>;
+export type FileRecord = v.InferOutput<typeof fileRecordSchema>;
 
-export const snapshotSchema = z.object({
-  revision: z.number().int(),
-  r2Revision: z.number().int(),
-  files: z.array(fileRecordSchema),
-  exclusions: z.array(z.string()),
+export const snapshotSchema = v.object({
+  revision: integerSchema,
+  r2Revision: integerSchema,
+  files: v.array(fileRecordSchema),
+  exclusions: v.array(v.string()),
 });
 
-export type Snapshot = z.infer<typeof snapshotSchema>;
+export type Snapshot = v.InferOutput<typeof snapshotSchema>;
 
-export const documentSchema = z.object({ file: fileRecordSchema, content: contentSchema });
+export const documentSchema = v.object({
+  file: fileRecordSchema,
+  content: contentSchema,
+});
 
-export type DocumentResponse = z.infer<typeof documentSchema>;
+export type DocumentResponse = v.InferOutput<typeof documentSchema>;

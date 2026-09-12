@@ -1,31 +1,48 @@
-import { z } from "zod";
+import * as v from "valibot";
 
-const https = z
-  .string()
-  .url()
-  .refine((value) => new URL(value).protocol === "https:");
+import { urlSchema } from "./url-schema";
 
-export const metadataSchema = z.object({
-  issuer: https,
-  authorization_endpoint: https,
-  token_endpoint: https,
-  registration_endpoint: https,
+const httpsUrlSchema = v.pipe(
+  urlSchema,
+  v.check((value) => {
+    if (!URL.canParse(value)) {
+      return false;
+    }
+
+    return new URL(value).protocol === "https:";
+  }),
+);
+
+export const metadataSchema = v.object({
+  issuer: httpsUrlSchema,
+  authorization_endpoint: httpsUrlSchema,
+  token_endpoint: httpsUrlSchema,
+  registration_endpoint: httpsUrlSchema,
 });
 
-export type Metadata = z.infer<typeof metadataSchema>;
+export type Metadata = v.InferOutput<typeof metadataSchema>;
 
-export const authStateSchema = z.object({
-  registration: z.object({ clientId: z.string().min(1), metadata: metadataSchema }).optional(),
-  pending: z
-    .object({ state: z.string().min(1), verifier: z.string().min(43), createdAt: z.number() })
-    .optional(),
-  tokens: z
-    .object({
-      accessToken: z.string().min(1),
-      refreshToken: z.string().min(1),
-      expiresAt: z.number(),
-    })
-    .optional(),
+const registrationSchema = v.object({
+  clientId: v.pipe(v.string(), v.minLength(1)),
+  metadata: metadataSchema,
 });
 
-export type AuthState = z.infer<typeof authStateSchema>;
+const pendingLoginSchema = v.object({
+  state: v.pipe(v.string(), v.minLength(1)),
+  verifier: v.pipe(v.string(), v.minLength(43)),
+  createdAt: v.pipe(v.number(), v.finite()),
+});
+
+const tokensSchema = v.object({
+  accessToken: v.pipe(v.string(), v.minLength(1)),
+  refreshToken: v.pipe(v.string(), v.minLength(1)),
+  expiresAt: v.pipe(v.number(), v.finite()),
+});
+
+export const authStateSchema = v.object({
+  registration: v.optional(registrationSchema),
+  pending: v.optional(pendingLoginSchema),
+  tokens: v.optional(tokensSchema),
+});
+
+export type AuthState = v.InferOutput<typeof authStateSchema>;

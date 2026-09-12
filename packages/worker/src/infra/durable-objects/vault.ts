@@ -38,6 +38,7 @@ export class Vault {
   private serial<T>(action: () => Promise<T>): Promise<T> {
     const next = this.tail.then(action);
     this.tail = next.catch(() => undefined);
+
     return next;
   }
 }

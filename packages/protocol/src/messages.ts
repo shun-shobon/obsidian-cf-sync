@@ -1,19 +1,43 @@
-import { z } from "zod";
+import * as v from "valibot";
 
 import { idSchema } from "./identity";
+import { integerSchema } from "./numbers";
 
-export const serverMessageSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("changed"), revision: z.number().int(), fileId: idSchema }),
-  z.object({
-    type: z.literal("text"),
-    fileId: idSchema,
-    update: z.string(),
-    revision: z.number().int(),
-    deviceId: idSchema,
-  }),
-  z.object({ type: z.literal("r2"), revision: z.number().int() }),
-  z.object({ type: z.literal("settings"), revision: z.number().int() }),
-  z.object({ type: z.literal("error"), message: z.string() }),
+const changedMessageSchema = v.object({
+  type: v.literal("changed"),
+  revision: integerSchema,
+  fileId: idSchema,
+});
+
+const textMessageSchema = v.object({
+  type: v.literal("text"),
+  fileId: idSchema,
+  update: v.string(),
+  revision: integerSchema,
+  deviceId: idSchema,
+});
+
+const r2MessageSchema = v.object({
+  type: v.literal("r2"),
+  revision: integerSchema,
+});
+
+const settingsMessageSchema = v.object({
+  type: v.literal("settings"),
+  revision: integerSchema,
+});
+
+const errorMessageSchema = v.object({
+  type: v.literal("error"),
+  message: v.string(),
+});
+
+export const serverMessageSchema = v.variant("type", [
+  changedMessageSchema,
+  textMessageSchema,
+  r2MessageSchema,
+  settingsMessageSchema,
+  errorMessageSchema,
 ]);
 
-export type ServerMessage = z.infer<typeof serverMessageSchema>;
+export type ServerMessage = v.InferOutput<typeof serverMessageSchema>;

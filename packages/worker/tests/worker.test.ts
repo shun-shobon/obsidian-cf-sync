@@ -16,12 +16,15 @@ class Storage {
   async get<T>(key: string): Promise<T | undefined> {
     return structuredClone(this.data.get(key)) as T | undefined;
   }
+
   async put(key: string, value: unknown) {
     this.data.set(key, structuredClone(value));
   }
+
   async delete(key: string) {
     return this.data.delete(key);
   }
+
   async list<T>(options: { prefix: string; limit?: number }) {
     return new Map(
       [...this.data]
@@ -30,6 +33,7 @@ class Storage {
         .map(([key, value]) => [key, structuredClone(value) as T]),
     );
   }
+
   async transaction<T>(fn: (tx: Storage) => Promise<T>) {
     const backup = structuredClone(this.data);
     try {
@@ -39,13 +43,16 @@ class Storage {
       throw error;
     }
   }
+
   async getAlarm() {
     return this.alarm;
   }
+
   async setAlarm(time: number) {
     this.alarm = time;
   }
 }
+
 function setup() {
   const storage = new Storage();
   const objects = new Map<string, string>();
@@ -67,14 +74,19 @@ function setup() {
   let vault = new Vault(state, env);
   const vaultId = crypto.randomUUID();
   const deviceId = crypto.randomUUID();
-  const call = async (path: string, body?: unknown, method = "POST") =>
-    vault.fetch(
-      new Request(`https://internal${path}`, {
-        method: body === undefined ? "GET" : method,
-        headers: { "X-Vault-Id": vaultId, "X-Device-Id": deviceId },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      }),
-    );
+  const call = async (path: string, body?: unknown, method = "POST") => {
+    const init: RequestInit = {
+      method: "GET",
+      headers: { "X-Vault-Id": vaultId, "X-Device-Id": deviceId },
+    };
+
+    if (body !== undefined) {
+      init.method = method;
+      init.body = JSON.stringify(body);
+    }
+
+    return vault.fetch(new Request(`https://internal${path}`, init));
+  };
   const operation = async (op: Operation) => {
     const response = await call("/operations", op);
     expect(response.status).toBe(200);
@@ -84,6 +96,11 @@ function setup() {
     storage,
     objects,
     call,
+    snapshot: async () => {
+      const response = await call("/snapshot");
+
+      return response.json() as Promise<Snapshot>;
+    },
     operation,
     vaultId,
     deviceId,
@@ -97,11 +114,13 @@ function setup() {
     },
   };
 }
+
 function text(value: string) {
   const doc = new Y.Doc();
   doc.getText("content").insert(0, value);
   return { kind: "text" as const, update: fromUint8Array(Y.encodeStateAsUpdate(doc)) };
 }
+
 function create(path: string, value: string): Operation {
   return {
     type: "create",
@@ -111,6 +130,7 @@ function create(path: string, value: string): Operation {
     content: text(value),
   };
 }
+
 describe("Vault durable synchronization", () => {
   it("persists operation dedup across restart and retries failed R2 flush", async () => {
     const s = setup();
@@ -120,12 +140,13 @@ describe("Vault durable synchronization", () => {
     expect(await s.operation(op)).toEqual(result);
     s.fail(true);
     await expect(s.alarm()).rejects.toThrow("R2 down");
-    expect(((await (await s.call("/snapshot")).json()) as Snapshot).r2Revision).toBe(0);
+    expect((await s.snapshot()).r2Revision).toBe(0);
     s.fail(false);
     await s.alarm();
     expect(s.objects.get(`vaults/${s.vaultId}/files/a.md`)).toBe("one");
-    expect(((await (await s.call("/snapshot")).json()) as Snapshot).r2Revision).toBe(1);
+    expect((await s.snapshot()).r2Revision).toBe(1);
   });
+
   it("converges offline text edits and preserves edited content on stale deletion", async () => {
     const s = setup();
     const op = create("a.md", "base");
@@ -157,6 +178,7 @@ describe("Vault durable synchronization", () => {
     await s.alarm();
     expect([...s.objects.values()][0]).toMatch(/^base(?:AB|BA)$/);
   });
+
   it("protects same-path creation, case collisions, stale moves and edits after deletion", async () => {
     const s = setup();
     const a = create("A.md", "first");
@@ -195,6 +217,7 @@ describe("Vault durable synchronization", () => {
     expect(edited.conflict).toBe(true);
     expect(edited.file?.id).not.toBe(a.fileId);
   });
+
   it("keeps existing R2 copies when excluded and rejects changes under exclusions", async () => {
     const s = setup();
     await s.operation(create("folder/a.md", "keep"));
@@ -205,6 +228,7 @@ describe("Vault durable synchronization", () => {
     await s.alarm();
     expect([...s.objects.values()]).toEqual(["keep"]);
   });
+
   it("does not remove the old R2 path until the new path is persisted", async () => {
     const s = setup();
     const op = create("old.md", "safe");
@@ -225,6 +249,7 @@ describe("Vault durable synchronization", () => {
     expect(s.objects.has(`vaults/${s.vaultId}/files/old.md`)).toBe(false);
     expect(s.objects.get(`vaults/${s.vaultId}/files/new.md`)).toBe("safe");
   });
+
   it("rejects expired and reused websocket tickets before upgrade", async () => {
     const s = setup();
     const issued = (await (await s.call("/tickets", {})).json()) as { ticket: string };
@@ -242,6 +267,7 @@ describe("Vault durable synchronization", () => {
     expect(s.storage.data.has(ticketKey)).toBe(false);
   });
 });
+
 it("fails closed without Access configuration or a signed assertion", async () => {
   async function authenticateResponse(env: Env): Promise<Response> {
     const app = new Hono();
@@ -300,9 +326,9 @@ describe("Durable Object HTTP routing", () => {
   it("reads the latest metadata for every request", async () => {
     const s = setup();
     await s.operation(create("first.md", "first"));
-    expect(((await (await s.call("/snapshot")).json()) as Snapshot).revision).toBe(1);
+    expect((await s.snapshot()).revision).toBe(1);
     await s.operation(create("second.md", "second"));
-    expect(((await (await s.call("/snapshot")).json()) as Snapshot).revision).toBe(2);
+    expect((await s.snapshot()).revision).toBe(2);
   });
 
   it("routes account devices and vaults with method and parameter validation", async () => {
@@ -311,13 +337,15 @@ describe("Durable Object HTTP routing", () => {
       {} as Env,
     );
     const device = { id: crypto.randomUUID(), name: "Laptop" };
-    const call = (path: string, method = "GET", body?: unknown) =>
-      account.fetch(
-        new Request(`https://internal${path}`, {
-          method,
-          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        }),
-      );
+    const call = (path: string, method = "GET", body?: unknown) => {
+      const init: RequestInit = { method };
+
+      if (body !== undefined) {
+        init.body = JSON.stringify(body);
+      }
+
+      return account.fetch(new Request(`https://internal${path}`, init));
+    };
     expect((await call("/devices", "POST", device)).status).toBe(200);
     expect(await (await call(`/devices/${device.id}`)).json()).toMatchObject(device);
     expect((await call(`/devices/${device.id}`, "PUT", {})).status).toBe(404);

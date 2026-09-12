@@ -1,6 +1,7 @@
 import { Plugin } from "obsidian";
+import * as v from "valibot";
 
-import { initialSettings, settingsSchema } from "./domain/plugin-settings";
+import { initialSettings, settingsSchema, type Settings } from "./domain/plugin-settings";
 import { registerCommands } from "./presentation/commands";
 import { editorExtension } from "./presentation/editor/extension";
 import { PluginController } from "./presentation/plugin-controller";
@@ -12,8 +13,13 @@ export default class CFSyncPlugin extends Plugin {
 
   override async onload() {
     const data: unknown = await this.loadData();
-    const config =
-      data === null ? initialSettings(this.app.vault.getName()) : settingsSchema.parse(data);
+    let config: Settings;
+
+    if (data === null) {
+      config = initialSettings(this.app.vault.getName());
+    } else {
+      config = v.parse(settingsSchema, data);
+    }
 
     const status = this.addStatusBarItem();
     status.setText("CF Sync: 未接続");

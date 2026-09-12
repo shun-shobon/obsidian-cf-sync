@@ -17,7 +17,9 @@ export class TestVault extends Vault {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const id = request.headers.get("X-Vault-Id");
-    if (!id) return new Response("Missing test vault", { status: 400 });
+    if (!id) {
+      return new Response("Missing test vault", { status: 400 });
+    }
     return env.VAULTS.get(env.VAULTS.idFromName(id)).fetch(request);
   },
 };

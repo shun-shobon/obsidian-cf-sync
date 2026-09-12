@@ -1,17 +1,26 @@
-import { z } from "zod";
+import * as v from "valibot";
 
 import { idSchema } from "./identity";
+import { nonNegativeIntegerSchema } from "./numbers";
 
-export const blobSchema = z.object({
+export const blobSchema = v.object({
   key: idSchema,
-  size: z.number().int().nonnegative(),
-  digest: z.string().regex(/^[a-f0-9]{64}$/),
+  size: nonNegativeIntegerSchema,
+  digest: v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/)),
 });
 
-export const contentSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("text"), update: z.string() }),
-  z.object({ kind: z.literal("blob"), blob: blobSchema }),
-]);
+const textContentSchema = v.object({
+  kind: v.literal("text"),
+  update: v.string(),
+});
 
-export type Content = z.infer<typeof contentSchema>;
-export type BlobRef = z.infer<typeof blobSchema>;
+const blobContentSchema = v.object({
+  kind: v.literal("blob"),
+  blob: blobSchema,
+});
+
+export const contentSchema = v.variant("kind", [textContentSchema, blobContentSchema]);
+
+export type Content = v.InferOutput<typeof contentSchema>;
+
+export type BlobRef = v.InferOutput<typeof blobSchema>;
