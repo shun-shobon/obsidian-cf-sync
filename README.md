@@ -2,7 +2,7 @@
 
 自分のCloudflare環境でObsidian Vaultを同期するプラグイン。MarkdownはYjsで同時編集し、通常ファイルの最新版をR2へ保存します。
 
-対応対象はmacOS・Windows・Linux・iOS・Androidです。実装は開発段階で、実機の検証結果は[検証記録](docs/validation.md)を参照してください。仕様は[初版仕様](docs/spec.md)にあります。
+対応対象はmacOS・Windows・Linux・iOS・Androidです。実装は開発段階です。仕様は[初版仕様](docs/spec.md)にあります。
 
 ## 構成
 
@@ -24,11 +24,11 @@
 ```sh
 mise trust
 mise install
-mise exec -- pnpm install --frozen-lockfile
-mise exec -- pnpm typecheck
-mise exec -- pnpm lint
-mise exec -- pnpm test
-mise exec -- pnpm build
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
 ```
 
 パッケージ単位の検証は`pnpm --filter @cf-sync/worker test`や`pnpm --filter @cf-sync/obsidian-plugin typecheck`で実行できます。ルートの`pnpm test`は全パッケージの単体テストと結合テストを実行します。
@@ -38,12 +38,12 @@ mise exec -- pnpm build
 Workerのデプロイ内容だけを確認する場合は次を実行します。
 
 ```sh
-mise exec -- pnpm build:worker
+pnpm build:worker
 ```
 
 ## サーバーの準備
 
-1. CloudflareでR2を有効にし、`packages/worker/wrangler.jsonc`の`bucket_name`を自分のバケット名へ変更します。新規作成には`mise exec -- pnpm --filter @cf-sync/worker exec wrangler r2 bucket create <バケット名>`を使います。
+1. CloudflareでR2を有効にし、`packages/worker/wrangler.jsonc`の`bucket_name`を自分のバケット名へ変更します。新規作成には`pnpm --filter @cf-sync/worker exec wrangler r2 bucket create <バケット名>`を使います。
 2. 自分のHTTPSホスト名をWorkerのカスタムドメインへ割り当てます。プラグインにはパスを含まないこのオリジンを設定します。
 3. Accessのself-hosted applicationで同期APIの`/api/*`を保護し、自分のメールアドレスだけを許可します。Managed OAuthを有効にします。
 4. OAuthの許可リダイレクトURIを`https://<ホスト名>/oauth/callback`に設定します。public clientのDynamic Client RegistrationとPKCEによる認可コード交換を利用します。未認証の`/api`へのリクエストが401を返し、`WWW-Authenticate`に`resource_metadata`が含まれることを確認します。プラグインはそのURLの`authorization_servers`からAccessの認可サーバーを発見します。Worker直下に認可サーバーのメタデータを置いたり、そのパスをAccessの保護対象へ追加したりする必要はありません。
@@ -58,11 +58,11 @@ mise exec -- pnpm build:worker
 | `OWNER_EMAIL`        | 同期を許可する自分のメールアドレス                       |
 
 ```sh
-mise exec -- pnpm --filter @cf-sync/worker exec wrangler login
-mise exec -- pnpm --filter @cf-sync/worker exec wrangler secret put ACCESS_TEAM_DOMAIN
-mise exec -- pnpm --filter @cf-sync/worker exec wrangler secret put ACCESS_AUD
-mise exec -- pnpm --filter @cf-sync/worker exec wrangler secret put OWNER_EMAIL
-mise exec -- pnpm deploy
+pnpm --filter @cf-sync/worker exec wrangler login
+pnpm --filter @cf-sync/worker exec wrangler secret put ACCESS_TEAM_DOMAIN
+pnpm --filter @cf-sync/worker exec wrangler secret put ACCESS_AUD
+pnpm --filter @cf-sync/worker exec wrangler secret put OWNER_EMAIL
+pnpm deploy
 ```
 
 DOはSQLiteバックエンドで作成されます。HTTP APIはAccess JWTの署名・issuer・audience・所有者を検証し、設定が不足している場合も認証を省略しません。端末の失効はAPIと既存WebSocketへ反映します。
