@@ -13,6 +13,7 @@ import { IndexedDbStore } from "../sync/infra/storage/indexed-db-store";
 import { SyncEngine } from "../sync/usecase/sync-engine";
 
 import { confirmInitial } from "./confirm-initial";
+import { loginInBrowser } from "./login-modal";
 import { statusText } from "./status";
 
 export class PluginController {
@@ -62,9 +63,8 @@ export class PluginController {
     );
   }
 
-  async login() {
-    const url = await this.authentication().begin();
-    window.open(url, "_external");
+  login() {
+    return loginInBrowser(this.app, () => this.authentication().begin());
   }
 
   async finishLogin(params: Record<string, string>) {

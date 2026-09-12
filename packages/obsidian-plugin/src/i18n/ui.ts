@@ -7,6 +7,8 @@ export const enUI = {
   authenticationDescription:
     "Tokens are stored in this plugin’s data.json on this device. Do not share this file.",
   loginInBrowser: "Log in with browser",
+  preparingLogin: "Preparing login…",
+  loginReady: "Ready. Tap the link below to open your browser and log in.",
   logout: "Log out",
   disconnected: "Not connected",
   pauseSync: "Pause sync",
@@ -56,6 +58,8 @@ export const jaUI = {
   authenticationDescription:
     "トークンはこの端末のプラグイン data.json に保存されます。このファイルを共有しないでください。",
   loginInBrowser: "ブラウザでログイン",
+  preparingLogin: "ログインの準備中…",
+  loginReady: "準備ができました。下のリンクを押してブラウザでログインしてください。",
   logout: "ログアウト",
   disconnected: "未接続",
   pauseSync: "同期を一時停止",
