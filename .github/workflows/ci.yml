@@ -3,7 +3,6 @@ on:
   push:
     branches: [main]
   pull_request:
-  workflow_call:
 permissions:
   contents: read
 jobs:
@@ -48,3 +47,14 @@ jobs:
             packages/obsidian-plugin/dist/main.js
             packages/obsidian-plugin/dist/manifest.json
           if-no-files-found: error
+
+  status-check:
+    name: Status check
+    if: ${{ always() }}
+    needs: [format, lint, typecheck, test, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all jobs to succeed
+        env:
+          ALL_SUCCEEDED: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') }}
+        run: test "$ALL_SUCCEEDED" = "true"

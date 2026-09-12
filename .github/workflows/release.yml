@@ -5,21 +5,14 @@ on:
 permissions:
   contents: read
 jobs:
-  check:
-    uses: ./.github/workflows/ci.yml
-
   release:
-    needs: check
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: cf-sync
-          path: packages/obsidian-plugin/dist
+      - run: pnpm --filter @cf-sync/obsidian-plugin build
       - name: Check tag matches manifest
         run: node --input-type=module -e 'import fs from "node:fs"; if(JSON.parse(fs.readFileSync("packages/obsidian-plugin/dist/manifest.json")).version !== process.env.RELEASE_TAG) process.exit(1)'
         env:
