@@ -9,6 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
@@ -17,6 +19,12 @@ jobs:
         run: node --input-type=module -e 'import fs from "node:fs"; if(JSON.parse(fs.readFileSync("packages/obsidian-plugin/dist/manifest.json")).version !== process.env.RELEASE_TAG) process.exit(1)'
         env:
           RELEASE_TAG: ${{ github.ref_name }}
+      - name: Attest release assets
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            packages/obsidian-plugin/dist/main.js
+            packages/obsidian-plugin/dist/manifest.json
       - name: Create release
         run: gh release create "$RELEASE_TAG" packages/obsidian-plugin/dist/main.js packages/obsidian-plugin/dist/manifest.json --verify-tag --generate-notes
         env:

@@ -50,7 +50,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   ui.desktop = false;
   ui.elements = [];
-  vi.stubGlobal("window", { open: vi.fn() });
+  vi.stubGlobal("window", { open: vi.fn(), setTimeout: globalThis.setTimeout });
 });
 afterEach(() => {
   vi.useRealTimers();

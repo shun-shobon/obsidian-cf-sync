@@ -1,3 +1,4 @@
+import "./helpers/browser-window";
 import "fake-indexeddb/auto";
 import { digest } from "@cf-sync/protocol";
 import { afterEach, describe, expect, it } from "vitest";

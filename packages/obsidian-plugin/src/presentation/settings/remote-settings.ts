@@ -1,71 +1,151 @@
 import type { Device, Snapshot, VaultInfo } from "@cf-sync/protocol";
-import { Setting, type App } from "obsidian";
+import { Setting, type App, type SettingDefinitionItem } from "obsidian";
 
 import { t } from "../../i18n";
 import type { ApiClient } from "../../infra/http/api-client";
 import type { PluginController } from "../plugin-controller";
 
-export async function renderRemoteSettings(
-  container: HTMLElement,
+export function remoteSettingDefinitions(
   app: App,
   controller: PluginController,
   refresh: () => void,
-) {
-  const api = controller.api();
-  const [vaults, devices] = await Promise.all([api.vaults(), api.devices()]);
-  const remote = container.createDiv();
-  renderVaultSelection(remote, controller, refresh, vaults);
-  renderCreateVault(remote, controller, refresh, api);
-  renderDevices(remote, controller, refresh, devices);
+): SettingDefinitionItem[] {
+  const definitions: SettingDefinitionItem[] = [
+    {
+      name: t(($) => $.ui.remoteVault),
+      desc: t(($) => $.ui.remoteVaultDescription),
+      render: (setting) =>
+        renderAsync(
+          controller,
+          () => controller.api().vaults(),
+          (vaults) => renderVaultSelection(setting, controller, refresh, vaults),
+        ),
+    },
+    {
+      name: t(($) => $.ui.createRemoteVault),
+      render: (setting) => renderCreateVault(setting, controller, refresh, controller.api()),
+    },
+    {
+      name: t(($) => $.ui.devices),
+      render: (setting) =>
+        renderRows(
+          setting,
+          controller,
+          () => controller.api().devices(),
+          (container, devices) => renderDevices(container, controller, refresh, devices),
+        ),
+    },
+  ];
 
-  if (!controller.config.vaultId) {
-    return;
+  if (controller.config.vaultId) {
+    definitions.push(...snapshotSettingDefinitions(app, controller, refresh));
   }
 
-  const snapshot = await api.snapshot();
-  renderExclusions(remote, controller, refresh, snapshot);
-  renderConflicts(remote, app, snapshot);
+  return definitions;
+}
+
+function snapshotSettingDefinitions(
+  app: App,
+  controller: PluginController,
+  refresh: () => void,
+): SettingDefinitionItem[] {
+  let snapshot: Promise<Snapshot> | undefined;
+  const loadSnapshot = () => {
+    snapshot ??= controller
+      .api()
+      .snapshot()
+      .finally(() => {
+        snapshot = undefined;
+      });
+    return snapshot;
+  };
+  return [
+    {
+      name: t(($) => $.ui.excludedPaths),
+      desc: t(($) => $.ui.excludedPathsDescription),
+      render: (setting) =>
+        renderAsync(controller, loadSnapshot, (value) =>
+          renderExclusions(setting, controller, refresh, value),
+        ),
+    },
+    {
+      name: t(($) => $.ui.conflictFiles),
+      render: (setting) =>
+        renderRows(setting, controller, loadSnapshot, (container, value) =>
+          renderConflicts(container, app, value),
+        ),
+    },
+  ];
+}
+
+function renderAsync<T>(
+  controller: PluginController,
+  load: () => Promise<T>,
+  render: (value: T) => void,
+): () => void {
+  let active = true;
+  void controller.run(async () => {
+    const value = await load();
+    if (active) {
+      render(value);
+    }
+  });
+  return () => {
+    active = false;
+  };
+}
+
+function renderRows<T>(
+  setting: Setting,
+  controller: PluginController,
+  load: () => Promise<T>,
+  render: (container: HTMLElement, value: T) => void,
+): () => void {
+  setting.setHeading();
+  const container = setting.settingEl.ownerDocument.createElement("div");
+  setting.settingEl.after(container);
+  const cleanup = renderAsync(controller, load, (value) => render(container, value));
+  return () => {
+    cleanup();
+    container.remove();
+  };
 }
 
 function renderVaultSelection(
-  remote: HTMLElement,
+  setting: Setting,
   controller: PluginController,
   refresh: () => void,
   vaults: VaultInfo[],
 ) {
-  new Setting(remote)
-    .setName(t(($) => $.ui.remoteVault))
-    .setDesc(t(($) => $.ui.remoteVaultDescription))
-    .addDropdown((dropdown) => {
-      dropdown.addOption(
-        "",
-        t(($) => $.ui.selectVault),
-      );
+  setting.addDropdown((dropdown) => {
+    dropdown.addOption(
+      "",
+      t(($) => $.ui.selectVault),
+    );
 
-      for (const vault of vaults) {
-        dropdown.addOption(vault.id, vault.name);
-      }
+    for (const vault of vaults) {
+      dropdown.addOption(vault.id, vault.name);
+    }
 
-      dropdown.setValue(controller.config.vaultId);
-      dropdown.setDisabled(Boolean(controller.config.vaultId));
-      dropdown.onChange((id) =>
-        controller.run(async () => {
-          await controller.selectVault(id);
-          refresh();
-        }),
-      );
-    });
+    dropdown.setValue(controller.config.vaultId);
+    dropdown.setDisabled(Boolean(controller.config.vaultId));
+    dropdown.onChange((id) =>
+      controller.run(async () => {
+        await controller.selectVault(id);
+        refresh();
+      }),
+    );
+  });
 }
 
 function renderCreateVault(
-  remote: HTMLElement,
+  setting: Setting,
   controller: PluginController,
   refresh: () => void,
   api: ApiClient,
 ) {
   let name = "";
-  new Setting(remote)
-    .setName(t(($) => $.ui.createRemoteVault))
+  setting
     .addText((input) =>
       input.onChange((value) => {
         name = value.trim();
@@ -91,8 +171,6 @@ function renderDevices(
   refresh: () => void,
   devices: Device[],
 ) {
-  remote.createEl("h3", { text: t(($) => $.ui.devices) });
-
   for (const device of devices) {
     let description = device.id;
 
@@ -118,15 +196,13 @@ function renderDevices(
 }
 
 function renderExclusions(
-  remote: HTMLElement,
+  setting: Setting,
   controller: PluginController,
   refresh: () => void,
   snapshot: Snapshot,
 ) {
   let exclusions = snapshot.exclusions.join("\n");
-  new Setting(remote)
-    .setName(t(($) => $.ui.excludedPaths))
-    .setDesc(t(($) => $.ui.excludedPathsDescription))
+  setting
     .addTextArea((input) =>
       input.setValue(exclusions).onChange((value) => {
         exclusions = value;
@@ -147,8 +223,6 @@ function renderExclusions(
 }
 
 function renderConflicts(remote: HTMLElement, app: App, snapshot: Snapshot) {
-  remote.createEl("h3", { text: t(($) => $.ui.conflictFiles) });
-
   for (const file of snapshot.files.filter((file) => file.conflict)) {
     new Setting(remote).setName(file.path).addButton((button) =>
       button.setButtonText(t(($) => $.ui.open)).onClick(() => {

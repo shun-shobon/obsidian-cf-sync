@@ -54,20 +54,20 @@ function receiveMessages(socket: WebSocket, onMessage: (message: ServerMessage) 
 
 async function waitUntilOpen(socket: WebSocket) {
   await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
+    const timer = window.setTimeout(() => {
       socket.close();
       reject(new ConnectionError(t(($) => $.errors.websocketTimeout)));
     }, 15_000);
     socket.onopen = () => {
-      clearTimeout(timer);
+      window.clearTimeout(timer);
       resolve();
     };
     socket.onerror = () => {
-      clearTimeout(timer);
+      window.clearTimeout(timer);
       reject(new ConnectionError(t(($) => $.errors.websocketFailed)));
     };
     socket.onclose = () => {
-      clearTimeout(timer);
+      window.clearTimeout(timer);
       reject(new ConnectionError(t(($) => $.errors.websocketClosed)));
     };
   });

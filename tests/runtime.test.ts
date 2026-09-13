@@ -1,3 +1,4 @@
+import "../packages/obsidian-plugin/tests/helpers/browser-window";
 import { mkdtemp, rm } from "node:fs/promises";
 
 import "fake-indexeddb/auto";
