@@ -322,7 +322,6 @@ it("fails closed without Access configuration or a signed assertion", async () =
       await authenticateResponse({
         ACCESS_TEAM_DOMAIN: "team.cloudflareaccess.com",
         ACCESS_AUD: "aud",
-        OWNER_EMAIL: "owner@test",
       } as Env)
     ).status,
   ).toBe(401);
