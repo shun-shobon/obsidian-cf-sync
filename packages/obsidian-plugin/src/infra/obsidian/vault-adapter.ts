@@ -1,5 +1,5 @@
 import { digest } from "@cf-sync/protocol";
-import { TFile, type Vault } from "obsidian";
+import { TFile, type FileManager, type Vault } from "obsidian";
 
 import { t } from "../../i18n";
 import type { VaultPort } from "../../sync/ports/vault-port";
@@ -9,7 +9,10 @@ import { OwnFileEvents, type ExpectedEvent, type FileEvent } from "./own-file-ev
 export class ObsidianVault implements VaultPort {
   private readonly events: OwnFileEvents;
 
-  constructor(private readonly vault: Vault) {
+  constructor(
+    private readonly vault: Vault,
+    private readonly fileManager: FileManager,
+  ) {
     this.events = new OwnFileEvents(vault);
   }
 
@@ -166,7 +169,7 @@ export class ObsidianVault implements VaultPort {
       throw new Error(t(($) => $.errors.notFile, { path: path }));
     }
 
-    await this.events.run({ type: "delete", file, path }, () => this.vault.trash(file, true));
+    await this.events.run({ type: "delete", file, path }, () => this.fileManager.trashFile(file));
   }
 
   async rename(oldPath: string, newPath: string) {

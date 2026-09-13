@@ -1,3 +1,4 @@
+import "./helpers/browser-window";
 import "fake-indexeddb/auto";
 import type { ServerMessage } from "@cf-sync/protocol";
 import { afterEach, expect, it, vi } from "vitest";

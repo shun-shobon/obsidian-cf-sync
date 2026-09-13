@@ -2,7 +2,7 @@
   "id": "cf-sync",
   "name": "CF Sync",
   "version": "0.1.2",
-  "minAppVersion": "1.11.4",
+  "minAppVersion": "1.13.0",
   "description": "Sync personal vaults and collaboratively edit Markdown through your Cloudflare account.",
   "author": "Shuntaro Nishizawa",
   "authorUrl": "https://github.com/shun-shobon",

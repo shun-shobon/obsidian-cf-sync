@@ -31,7 +31,7 @@ export class PluginController {
     private readonly save: (settings: Settings) => Promise<void>,
     private readonly displayStatus: (message: string) => void,
   ) {
-    this.vault = new ObsidianVault(app.vault);
+    this.vault = new ObsidianVault(app.vault, app.fileManager);
   }
 
   persist(): Promise<void> {

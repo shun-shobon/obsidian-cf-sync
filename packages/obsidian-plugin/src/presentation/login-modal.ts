@@ -29,7 +29,7 @@ class LoginModal extends Modal {
       }
 
       // Let the mobile link's default navigation run before removing it.
-      setTimeout(() => this.close(), 0);
+      window.setTimeout(() => this.close(), 0);
     });
   }
 

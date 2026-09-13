@@ -1,12 +1,12 @@
 export class SyncScheduler {
-  private timer: ReturnType<typeof setTimeout> | undefined;
+  private timer: number | undefined;
   private retryDelay = 1000;
 
   constructor(private readonly run: () => void) {}
 
   schedule(delay = 250): void {
     this.cancel();
-    this.timer = setTimeout(() => {
+    this.timer = window.setTimeout(() => {
       this.timer = undefined;
       this.run();
     }, delay);
@@ -22,7 +22,7 @@ export class SyncScheduler {
   }
 
   cancel(): void {
-    clearTimeout(this.timer);
+    window.clearTimeout(this.timer);
     this.timer = undefined;
   }
 }

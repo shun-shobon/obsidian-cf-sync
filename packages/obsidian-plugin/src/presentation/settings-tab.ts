@@ -1,10 +1,16 @@
-import { PluginSettingTab, Setting, type App, type Plugin } from "obsidian";
+import {
+  PluginSettingTab,
+  type Setting,
+  type App,
+  type Plugin,
+  type SettingDefinitionItem,
+} from "obsidian";
 
 import { serverOrigin } from "../domain/server-origin";
 import { t } from "../i18n";
 
 import type { PluginController } from "./plugin-controller";
-import { renderRemoteSettings } from "./settings/remote-settings";
+import { remoteSettingDefinitions } from "./settings/remote-settings";
 import { statusText } from "./status";
 
 export class SyncSettingsTab extends PluginSettingTab {
@@ -16,26 +22,66 @@ export class SyncSettingsTab extends PluginSettingTab {
     super(app, plugin);
   }
 
-  override display() {
-    this.containerEl.empty();
-    this.containerEl.createEl("h2", { text: "CF Sync" });
-    this.renderServerSettings();
-    this.renderAuthenticationSettings();
-    this.renderSyncSettings();
+  override getSettingDefinitions(): SettingDefinitionItem[] {
+    let description: string = t(($) => $.ui.disconnected);
+    if (this.controller.status) {
+      description = statusText(this.controller.status);
+    }
+
+    const definitions: SettingDefinitionItem[] = [
+      {
+        type: "group",
+        heading: "CF Sync",
+        items: [
+          {
+            name: t(($) => $.ui.serverUrl),
+            desc: t(($) => $.ui.serverUrlDescription),
+            render: (setting) => this.renderServerSettings(setting),
+          },
+          {
+            name: t(($) => $.ui.deviceName),
+            render: (setting) => {
+              setting.addText((input) =>
+                input.setValue(this.controller.config.deviceName).onChange((value) => {
+                  void this.controller.run(() => this.controller.setDeviceName(value));
+                }),
+              );
+            },
+          },
+          {
+            name: t(($) => $.ui.authentication),
+            desc: t(($) => $.ui.authenticationDescription),
+            render: (setting) => this.renderAuthenticationSettings(setting),
+          },
+          {
+            name: t(($) => $.ui.pauseSync),
+            render: (setting) => {
+              setting.addToggle((input) =>
+                input
+                  .setValue(this.controller.config.paused)
+                  .onChange((value) => this.controller.run(() => this.controller.setPaused(value))),
+              );
+            },
+          },
+          {
+            name: t(($) => $.ui.syncStatus),
+            desc: description,
+            render: (setting) => this.renderSyncSettings(setting),
+          },
+        ],
+      },
+    ];
 
     if (this.controller.config.server && this.controller.config.auth.tokens) {
-      void this.controller.run(() =>
-        renderRemoteSettings(this.containerEl, this.app, this.controller, () => this.display()),
-      );
+      definitions.push(...remoteSettingDefinitions(this.app, this.controller, () => this.update()));
     }
+
+    return definitions;
   }
 
-  private renderServerSettings() {
-    const containerEl = this.containerEl;
+  private renderServerSettings(setting: Setting) {
     let server = this.controller.config.server;
-    new Setting(containerEl)
-      .setName(t(($) => $.ui.serverUrl))
-      .setDesc(t(($) => $.ui.serverUrlDescription))
+    setting
       .addText((input) =>
         input
           .setValue(server)
@@ -48,22 +94,14 @@ export class SyncSettingsTab extends PluginSettingTab {
         button.setButtonText(t(($) => $.ui.save)).onClick(() => {
           void this.controller.run(async () => {
             await this.controller.changeServer(serverOrigin(server));
-            this.display();
+            this.update();
           });
         }),
       );
-    new Setting(containerEl).setName(t(($) => $.ui.deviceName)).addText((input) =>
-      input.setValue(this.controller.config.deviceName).onChange((value) => {
-        void this.controller.run(() => this.controller.setDeviceName(value));
-      }),
-    );
   }
 
-  private renderAuthenticationSettings() {
-    const containerEl = this.containerEl;
-    new Setting(containerEl)
-      .setName(t(($) => $.ui.authentication))
-      .setDesc(t(($) => $.ui.authenticationDescription))
+  private renderAuthenticationSettings(setting: Setting) {
+    setting
       .addButton((button) =>
         button.setButtonText(t(($) => $.ui.loginInBrowser)).onClick(() => {
           void this.controller.run(() => this.controller.login());
@@ -76,31 +114,14 @@ export class SyncSettingsTab extends PluginSettingTab {
       );
   }
 
-  private renderSyncSettings() {
-    const containerEl = this.containerEl;
-    let description: string = t(($) => $.ui.disconnected);
-
-    if (this.controller.status) {
-      description = statusText(this.controller.status);
-    }
-
-    new Setting(containerEl)
-      .setName(t(($) => $.ui.pauseSync))
-      .addToggle((input) =>
-        input
-          .setValue(this.controller.config.paused)
-          .onChange((value) => this.controller.run(() => this.controller.setPaused(value))),
-      );
-    new Setting(containerEl)
-      .setName(t(($) => $.ui.syncStatus))
-      .setDesc(description)
-      .addButton((button) =>
-        button.setButtonText(t(($) => $.ui.syncNow)).onClick(() => {
-          void this.controller.run(async () => {
-            await this.controller.engine?.syncNow();
-            this.display();
-          });
-        }),
-      );
+  private renderSyncSettings(setting: Setting) {
+    setting.addButton((button) =>
+      button.setButtonText(t(($) => $.ui.syncNow)).onClick(() => {
+        void this.controller.run(async () => {
+          await this.controller.engine?.syncNow();
+          this.update();
+        });
+      }),
+    );
   }
 }

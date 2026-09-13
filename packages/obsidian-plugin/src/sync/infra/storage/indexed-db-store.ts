@@ -36,7 +36,13 @@ export class IndexedDbStore implements SyncStore {
         request.result.createObjectStore("pending");
       };
       request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+      request.onerror = () =>
+        reject(
+          new Error(
+            t(($) => $.errors.storageFailed),
+            { cause: request.error },
+          ),
+        );
       request.onblocked = () => reject(new Error(t(($) => $.errors.databaseBusy)));
     });
   }
@@ -49,7 +55,13 @@ export class IndexedDbStore implements SyncStore {
       const store = transaction.objectStore("sync");
       const request = store.get(key);
       request.onsuccess = () => resolve(request.result as T | undefined);
-      request.onerror = () => reject(request.error);
+      request.onerror = () =>
+        reject(
+          new Error(
+            t(($) => $.errors.storageFailed),
+            { cause: request.error },
+          ),
+        );
     });
   }
 
@@ -67,8 +79,19 @@ export class IndexedDbStore implements SyncStore {
 
       transaction.oncomplete = () => resolve();
       transaction.onabort = () =>
-        reject(transaction.error ?? new Error(t(($) => $.errors.storageAborted)));
-      transaction.onerror = () => reject(transaction.error);
+        reject(
+          new Error(
+            t(($) => $.errors.storageAborted),
+            { cause: transaction.error },
+          ),
+        );
+      transaction.onerror = () =>
+        reject(
+          new Error(
+            t(($) => $.errors.storageFailed),
+            { cause: transaction.error },
+          ),
+        );
     });
   }
 
@@ -81,7 +104,8 @@ export class IndexedDbStore implements SyncStore {
       const files = transaction.objectStore("files").getAll();
       const pending = transaction.objectStore("pending").getAll();
       transaction.oncomplete = () => {
-        if (!state.result) {
+        const metadata = state.result as Omit<LocalState, "files" | "pending"> | undefined;
+        if (!metadata) {
           resolve(undefined);
 
           return;
@@ -104,12 +128,18 @@ export class IndexedDbStore implements SyncStore {
         }
 
         resolve({
-          ...state.result,
-          files: files.result,
+          ...metadata,
+          files: storedFiles,
           pending: entries.map((entry) => entry.operation),
-        } as LocalState);
+        });
       };
-      transaction.onerror = () => reject(transaction.error);
+      transaction.onerror = () =>
+        reject(
+          new Error(
+            t(($) => $.errors.storageFailed),
+            { cause: transaction.error },
+          ),
+        );
     });
   }
 
@@ -159,8 +189,19 @@ export class IndexedDbStore implements SyncStore {
 
       transaction.oncomplete = () => resolve();
       transaction.onabort = () =>
-        reject(transaction.error ?? new Error(t(($) => $.errors.storageAborted)));
-      transaction.onerror = () => reject(transaction.error);
+        reject(
+          new Error(
+            t(($) => $.errors.storageAborted),
+            { cause: transaction.error },
+          ),
+        );
+      transaction.onerror = () =>
+        reject(
+          new Error(
+            t(($) => $.errors.storageFailed),
+            { cause: transaction.error },
+          ),
+        );
     });
     this.files = nextFiles;
     this.pending = nextPending;

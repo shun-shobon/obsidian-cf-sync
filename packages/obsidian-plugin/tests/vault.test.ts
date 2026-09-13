@@ -5,7 +5,7 @@ vi.mock("obsidian", () => ({
     constructor(public path: string) {}
   },
 }));
-import { TFile, type Vault } from "obsidian";
+import { TFile, type FileManager, type Vault } from "obsidian";
 
 import { ObsidianVault } from "../src/infra/obsidian/vault-adapter";
 
@@ -50,10 +50,6 @@ function fixture(delayed: boolean) {
       contents.set(file, new Uint8Array(bytes));
       emit({ type: "modify", file, path: file.path });
     },
-    trash: async (file: TFile) => {
-      files.delete(file.path);
-      emit({ type: "delete", file, path: file.path });
-    },
     rename: async (file: TFile, path: string) => {
       const oldPath = file.path;
       files.delete(oldPath);
@@ -68,9 +64,16 @@ function fixture(delayed: boolean) {
       return result;
     },
   };
-  adapter = new ObsidianVault(vault as unknown as Vault);
+  const fileManager = {
+    trashFile: vi.fn(async (file: TFile) => {
+      files.delete(file.path);
+      emit({ type: "delete", file, path: file.path });
+    }),
+  };
+  adapter = new ObsidianVault(vault as unknown as Vault, fileManager as unknown as FileManager);
   return {
     adapter,
+    fileManager,
     vault,
     files,
     contents,
@@ -93,7 +96,9 @@ describe("Obsidian Vault operation events", () => {
       await f.flush();
       await f.adapter.rename("note.md", "renamed.md");
       await f.flush();
+      const removedFile = f.files.get("renamed.md");
       await f.adapter.remove("renamed.md");
+      expect(f.fileManager.trashFile).toHaveBeenCalledExactlyOnceWith(removedFile);
       await f.flush();
       expect(f.forwarded).toEqual([]);
       expect(f.folders).toEqual([]);
