@@ -1,14 +1,19 @@
 import { Compartment } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { editorInfoField } from "obsidian";
+import type { Awareness } from "y-protocols/awareness";
 import type * as Y from "yjs";
 
 import { collaborationExtension } from "./collaboration-extension";
+import { presenceExtension } from "./presence-extension";
 
 export interface EditorDocuments {
   ensureDoc(path: string): Promise<Y.Doc | undefined>;
   releaseDoc(doc: Y.Doc): void;
   getDoc(path: string): Y.Doc | undefined;
+  getAwareness(doc: Y.Doc): Awareness | undefined;
+  setSelection(owner: object, doc: Y.Doc, anchor: number, head: number): void;
+  clearSelection(owner: object): void;
 }
 
 export class EditorBinding {
@@ -116,7 +121,12 @@ export class EditorBinding {
 
     this.doc = doc;
     this.boundEngine = engine;
-    this.view.dispatch({ effects: this.slot.reconfigure(collaborationExtension(doc)) });
+    this.view.dispatch({
+      effects: this.slot.reconfigure([
+        collaborationExtension(doc, engine.getAwareness(doc)),
+        presenceExtension(doc, engine),
+      ]),
+    });
   }
 
   private isCurrentBinding(path: string | undefined, engine: EditorDocuments | undefined): boolean {

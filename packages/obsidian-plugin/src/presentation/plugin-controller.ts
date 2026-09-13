@@ -108,6 +108,7 @@ export class PluginController {
 
   async setDeviceName(name: string) {
     this.config.deviceName = name;
+    this.engine?.setDeviceName(name);
     await this.persist();
   }
 
@@ -169,6 +170,8 @@ export class PluginController {
 
   private createEngine(): SyncEngine {
     return new SyncEngine({
+      deviceId: this.config.deviceId,
+      deviceName: this.config.deviceName,
       vault: this.vault,
       api: this.api(),
       store: new IndexedDbStore(

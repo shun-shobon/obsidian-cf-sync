@@ -15,7 +15,7 @@ export class ApplyOperation {
     private readonly blobs: BlobVerifier,
   ) {}
 
-  async execute(operation: Operation): Promise<OperationResult> {
+  async execute(operation: Operation, deviceId: string): Promise<OperationResult> {
     const previous = await this.repository.operationResult(operation.opId);
 
     if (previous) {
@@ -29,7 +29,7 @@ export class ApplyOperation {
     const changes = await this.prepare(operation, current, files, meta);
 
     await this.repository.commit(meta, files, changes);
-    this.broadcast(operation, changes.result);
+    this.broadcast(operation, changes.result, deviceId);
 
     return changes.result;
   }
@@ -92,8 +92,23 @@ export class ApplyOperation {
     return changes;
   }
 
-  private broadcast(operation: Operation, result: OperationResult): void {
-    // Full document state travels over HTTP; notifications remain small for large notes.
+  private broadcast(operation: Operation, result: OperationResult, deviceId: string): void {
+    if (
+      operation.type === "edit" &&
+      operation.content.kind === "text" &&
+      !result.conflict &&
+      result.file?.id === operation.fileId
+    ) {
+      this.sockets.broadcast({
+        type: "text",
+        fileId: operation.fileId,
+        file: result.file,
+        update: operation.content.update,
+        revision: result.revision,
+        deviceId,
+      });
+      return;
+    }
     this.sockets.broadcast({
       type: "changed",
       revision: result.revision,

@@ -1,4 +1,10 @@
-import { digest, isExcluded, type Snapshot } from "@cf-sync/protocol";
+import {
+  digest,
+  isExcluded,
+  type DocumentResponse,
+  type FileRecord,
+  type Snapshot,
+} from "@cf-sync/protocol";
 
 import type { LocalFile } from "../domain/sync-state";
 import type { VaultPort } from "../ports/vault-port";
@@ -6,7 +12,7 @@ import type { Documents } from "../service/documents";
 import type { SyncState } from "../service/sync-state";
 
 import type { LocalChanges } from "./local-changes";
-import type { ReceiveFile, ReconcileContext } from "./receive-file";
+import type { ReceiveFile } from "./receive-file";
 
 export class ReconcileVault {
   constructor(
@@ -56,36 +62,62 @@ export class ReconcileVault {
     return true;
   }
 
-  async run(snapshot: Snapshot): Promise<void> {
-    const context: ReconcileContext = {
-      paths: new Set(await this.vault.list()),
-      byId: new Map(this.state.data.files.map((file) => [file.id, file])),
-      byPath: new Map(this.state.data.files.map((file) => [file.path, file])),
-    };
-    const pendingIds = new Set(this.state.data.pending.map((op) => op.fileId));
-    const remoteIds = new Set(snapshot.files.map((file) => file.id));
+  async run(
+    snapshot: Snapshot,
+    serialize: <T>(work: () => Promise<T>) => Promise<T>,
+    fetchFile: (
+      file: FileRecord,
+    ) => Promise<{ document: DocumentResponse; bytes: Uint8Array | undefined }>,
+    isActive: () => boolean,
+  ): Promise<void> {
     for (const remote of snapshot.files) {
-      if (isExcluded(remote.path, snapshot.exclusions) || pendingIds.has(remote.id)) {
+      if (!isActive()) {
+        return;
+      }
+      const needed = await serialize(async () => {
+        const local = this.state.data.files.find((file) => file.id === remote.id);
+        return (
+          !isExcluded(remote.path, snapshot.exclusions) &&
+          !this.state.data.pending.some((op) => op.fileId === remote.id) &&
+          (!local ||
+            local.documentRevision < remote.revision ||
+            local.path !== remote.path ||
+            local.digest !== remote.digest)
+        );
+      });
+      if (!needed) {
         continue;
       }
-
-      await this.receive.run(remote, undefined, context);
+      // Fetch attachments outside the state queue so active editors keep working.
+      const fetched = await fetchFile(remote);
+      await serialize(async () => {
+        if (!isActive() || this.state.data.pending.some((op) => op.fileId === remote.id)) {
+          return;
+        }
+        await this.receive.run(fetched.document.file, fetched.document, undefined, fetched.bytes);
+      });
     }
 
-    for (const local of this.state.data.files) {
-      const existsRemotely = remoteIds.has(local.id);
-      const excluded = isExcluded(local.path, snapshot.exclusions);
-      const hasPendingChanges = pendingIds.has(local.id);
-      if (existsRemotely || excluded || hasPendingChanges) {
-        continue;
+    await serialize(async () => {
+      if (!isActive()) {
+        return;
       }
-
-      await this.removeDeleted(local, context.paths);
-    }
-
-    this.state.data.revision = snapshot.revision;
-    this.state.data.r2Revision = snapshot.r2Revision;
-    await this.state.persist();
+      const paths = new Set(await this.vault.list());
+      const remoteIds = new Set(snapshot.files.map((file) => file.id));
+      for (const local of this.state.data.files) {
+        const existsRemotely = remoteIds.has(local.id);
+        const excluded = isExcluded(local.path, snapshot.exclusions);
+        const hasPendingChanges = this.state.data.pending.some((op) => op.fileId === local.id);
+        // A socket update or acknowledgment may already be newer than this snapshot.
+        if (existsRemotely || excluded || hasPendingChanges || local.revision > snapshot.revision) {
+          continue;
+        }
+        await this.removeDeleted(local, paths);
+      }
+      this.state.data.revision = Math.max(this.state.data.revision, snapshot.revision);
+      this.state.data.r2Revision = Math.max(this.state.data.r2Revision, snapshot.r2Revision);
+      await this.state.persist();
+    });
   }
 
   private async removeDeleted(local: LocalFile, paths: Set<string>): Promise<void> {

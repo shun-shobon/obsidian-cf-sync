@@ -38,7 +38,8 @@ export class ReceiveFile {
     remote: FileRecord,
     fetched?: DocumentResponse,
     context?: ReconcileContext,
-  ): Promise<void> {
+    downloaded?: Uint8Array,
+  ): Promise<boolean> {
     let existing: LocalFile | undefined;
     if (context) {
       existing = context.byId.get(remote.id);
@@ -46,15 +47,19 @@ export class ReceiveFile {
       existing = this.state.data.files.find((file) => file.id === remote.id);
     }
 
+    if (existing && remote.revision < existing.documentRevision) {
+      return true;
+    }
+
     const paths = context?.paths ?? new Set(await this.vault.list());
     if (this.alreadyReceived(existing, remote)) {
-      return;
+      return true;
     }
 
     if (existing && paths.has(existing.path)) {
       const changedLocally = await this.captureChangedFile(existing);
       if (changedLocally) {
-        return;
+        return false;
       }
     }
 
@@ -67,11 +72,14 @@ export class ReceiveFile {
     }
 
     if (await this.captureDuringFetch(existing, remote, expected)) {
-      return;
+      return false;
     }
 
     const local = existing ?? { ...remote, diskDigest: remote.digest, documentRevision: 0 };
-    const content = await this.prepareContent(local, document);
+    const content = await this.prepareContent(local, document, downloaded);
+    if (!content) {
+      return false;
+    }
     const occupied = await this.preparePath(local, remote, paths, context);
     let expectedAtTarget = expected;
     if (occupied) {
@@ -84,12 +92,13 @@ export class ReceiveFile {
     if (!written) {
       await this.captureInterruptedWrite(existing, local, remote, content);
 
-      return;
+      return false;
     }
 
     await this.commitReceived(existing, local, remote, document, content, context);
     paths.add(remote.path);
     this.releaseContent(local, content);
+    return true;
   }
 
   private alreadyReceived(local: LocalFile | undefined, remote: FileRecord): boolean {
@@ -160,10 +169,11 @@ export class ReceiveFile {
   private async prepareContent(
     local: LocalFile,
     document: DocumentResponse,
-  ): Promise<PreparedContent> {
+    downloaded: Uint8Array | undefined,
+  ): Promise<PreparedContent | undefined> {
     if (document.content.kind === "blob") {
       return {
-        bytes: await this.api.download(document.content.blob),
+        bytes: downloaded ?? (await this.api.download(document.content.blob)),
         update: null,
         doc: undefined,
         wasOpen: false,
@@ -178,6 +188,13 @@ export class ReceiveFile {
     Y.applyUpdate(staged, localUpdate);
     Y.applyUpdate(staged, remoteUpdate);
 
+    if (staged.store.pendingStructs || staged.store.pendingDs) {
+      staged.destroy();
+      if (!wasOpen) {
+        this.documents.remove(local.id);
+      }
+      return undefined;
+    }
     const mergedText = staged.getText("content").toString();
     const bytes = new TextEncoder().encode(mergedText);
     const update = fromUint8Array(Y.encodeStateAsUpdate(staged));

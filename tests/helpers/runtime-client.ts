@@ -10,9 +10,12 @@ export function createRuntimeClient(mf: Miniflare, initial: Record<string, strin
   const files = new Map(
     Object.entries(initial).map(([path, text]) => [path, new TextEncoder().encode(text)]),
   );
+  const deviceId = crypto.randomUUID();
   const engine = new SyncEngine({
+    deviceId,
+    deviceName: "Runtime device",
     vault: memoryVault(files),
-    api: createRuntimeApi(mf),
+    api: createRuntimeApi(mf, deviceId),
     store: new IndexedDbStore(`runtime-${crypto.randomUUID()}`),
     onStatus: () => {},
     onConflict: () => {},

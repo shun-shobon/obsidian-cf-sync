@@ -21,6 +21,7 @@ import * as Y from "yjs";
 
 import { apply, deviceId, document, request, vaultId } from "./helpers/runtime-api";
 import { createRuntimeClient } from "./helpers/runtime-client";
+import { createRuntimeApi } from "./helpers/runtime-transport";
 
 let script: string;
 
@@ -347,7 +348,7 @@ describe("Durable Object and R2 runtime integration", () => {
 });
 
 describe("client engine against the real DO", () => {
-  it("converges offline edits through HTTP and websocket notifications", async () => {
+  it("converges offline edits through durable websocket operations", async () => {
     const { mf } = await start();
     const left = createRuntimeClient(mf, { "note.md": "base" });
     const right = createRuntimeClient(mf, {});
@@ -377,3 +378,160 @@ describe("client engine against the real DO", () => {
     }
   }, 30_000);
 });
+
+describe("realtime websocket transport", () => {
+  it("delivers durable text deltas, current presence on reconnect, and departure", async () => {
+    const { mf } = await start();
+    const leftId = crypto.randomUUID();
+    const rightId = crypto.randomUUID();
+    const leftMessages: ServerMessage[] = [];
+    const rightMessages: ServerMessage[] = [];
+    const left = await createRuntimeApi(mf, leftId).connect(
+      (message) => leftMessages.push(message),
+      () => {},
+    );
+    const doc = new Y.Doc();
+    doc.getText("content").insert(0, "base");
+    const fileId = crypto.randomUUID();
+    const operation: Operation = {
+      type: "create",
+      opId: crypto.randomUUID(),
+      fileId,
+      path: "live.md",
+      content: { kind: "text", update: fromUint8Array(Y.encodeStateAsUpdate(doc)) },
+    };
+    left.send({ type: "operation", operation });
+    await expect
+      .poll(() =>
+        leftMessages.some((m) => m.type === "operation-result" && m.result.opId === operation.opId),
+      )
+      .toBe(true);
+    const position = fromUint8Array(
+      Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(doc.getText("content"), 2)),
+    );
+    left.send({
+      type: "presence",
+      fileId,
+      clientId: doc.clientID,
+      name: "Left",
+      cursor: { anchor: position, head: position },
+    });
+    await expect.poll(() => leftMessages.some((m) => m.type === "presence")).toBe(true);
+    let leftClosed = false;
+    let right = await createRuntimeApi(mf, rightId).connect(
+      (message) => rightMessages.push(message),
+      () => {},
+    );
+    try {
+      await expect
+        .poll(() =>
+          rightMessages.some(
+            (m) => m.type === "presence" && m.deviceId === leftId && m.fileId === fileId,
+          ),
+        )
+        .toBe(true);
+      const vector = Y.encodeStateVector(doc);
+      doc.getText("content").insert(4, " live");
+      const update = fromUint8Array(Y.encodeStateAsUpdate(doc, vector));
+      left.send({
+        type: "operation",
+        operation: {
+          type: "edit",
+          opId: crypto.randomUUID(),
+          fileId,
+          path: "live.md",
+          baseRevision: 1,
+          content: { kind: "text", update },
+        },
+      });
+      await expect
+        .poll(() =>
+          rightMessages.some(
+            (m) => m.type === "text" && m.update === update && m.deviceId === leftId,
+          ),
+        )
+        .toBe(true);
+      expect(plain(await document(mf, fileId))).toBe("base live");
+      right.close();
+      rightMessages.length = 0;
+      right = await createRuntimeApi(mf, rightId).connect(
+        (message) => rightMessages.push(message),
+        () => {},
+      );
+      await expect
+        .poll(() =>
+          rightMessages.some(
+            (m) => m.type === "presence" && m.deviceId === leftId && m.fileId === fileId,
+          ),
+        )
+        .toBe(true);
+      left.close();
+      leftClosed = true;
+      await expect
+        .poll(() =>
+          rightMessages.some(
+            (m) => m.type === "presence" && m.deviceId === leftId && m.fileId === null,
+          ),
+        )
+        .toBe(true);
+    } finally {
+      if (!leftClosed) {
+        left.close();
+      }
+      right.close();
+      doc.destroy();
+    }
+  });
+});
+
+it("does not replay expired presence to a new websocket connection", async () => {
+  const { mf } = await start();
+  const leftId = crypto.randomUUID();
+  const messages: ServerMessage[] = [];
+  const left = await createRuntimeApi(mf, leftId).connect(
+    (message) => messages.push(message),
+    () => {},
+  );
+  const doc = new Y.Doc();
+  const position = fromUint8Array(
+    Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(doc.getText("content"), 0)),
+  );
+  try {
+    left.send({
+      type: "presence",
+      fileId: crypto.randomUUID(),
+      clientId: doc.clientID,
+      name: "Idle",
+      cursor: { anchor: position, head: position },
+    });
+    await expect.poll(() => messages.some((message) => message.type === "presence")).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 10_050));
+    const newcomerMessages: ServerMessage[] = [];
+    const right = await createRuntimeApi(mf, crypto.randomUUID()).connect(
+      (message) => newcomerMessages.push(message),
+      () => {},
+    );
+    try {
+      // A subsequent operation acknowledgement provides a delivery barrier.
+      right.send({
+        type: "operation",
+        operation: {
+          type: "create",
+          opId: crypto.randomUUID(),
+          fileId: crypto.randomUUID(),
+          path: "barrier.md",
+          content: { kind: "text", update: textUpdate("barrier") },
+        },
+      });
+      await expect
+        .poll(() => newcomerMessages.some((message) => message.type === "operation-result"))
+        .toBe(true);
+      expect(newcomerMessages.filter((message) => message.type === "presence")).toEqual([]);
+    } finally {
+      right.close();
+    }
+  } finally {
+    left.close();
+    doc.destroy();
+  }
+}, 15_000);

@@ -33,7 +33,7 @@ export default defineConfig({
       "js-base64",
       "yjs",
       "y-codemirror.next",
-      "y-protocols",
+      /^y-protocols(?:\/|$)/,
       /^lib0(?:\/|$)/,
       "valibot",
       "auth-header",

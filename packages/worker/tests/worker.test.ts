@@ -76,7 +76,8 @@ function setup() {
       list: async () => ({ objects: [], truncated: false }),
     },
   } as unknown as Env;
-  const state = { storage, getWebSockets: () => [] } as unknown as DurableObjectState;
+  const sockets: WebSocket[] = [];
+  const state = { storage, getWebSockets: () => sockets } as unknown as DurableObjectState;
   let vault = new Vault(state, env);
   const vaultId = crypto.randomUUID();
   const deviceId = crypto.randomUUID();
@@ -85,6 +86,10 @@ function setup() {
   return {
     storage,
     objects,
+    sockets,
+    env,
+    message: (ws: WebSocket, data: string | ArrayBuffer) => vault.webSocketMessage(ws, data),
+    close: (ws: WebSocket) => vault.webSocketClose(ws, 1000),
     snapshot: async () => {
       const result = unwrapRpcResult(await vault.snapshot(vaultId, deviceId));
       return new Response(result).json() as Promise<Snapshot>;
@@ -378,4 +383,240 @@ describe("Durable Object RPC", () => {
     expect(unwrapRpcResult(await account.devices())).toHaveLength(1);
     expect(unwrapRpcResult(await account.vaults())).toEqual([vault]);
   });
+});
+
+function socket(deviceId: string) {
+  let attachment: unknown = { deviceId, presence: null, updatedAt: 0 };
+  return {
+    readyState: WebSocket.OPEN,
+    send: vi.fn(),
+    close: vi.fn(),
+    serializeAttachment: (value: unknown) => {
+      attachment = value;
+    },
+    deserializeAttachment: () => attachment,
+  };
+}
+
+describe("realtime synchronization", () => {
+  it("persists and acknowledges WS operations idempotently and broadcasts edit deltas", async () => {
+    const s = setup();
+    await s.snapshot();
+    const ws = socket(s.deviceId);
+    s.sockets.push(ws as unknown as WebSocket);
+    const op = create("live.md", "base");
+    await s.message(s.sockets[0]!, JSON.stringify({ type: "operation", operation: op }));
+    expect(ws.send.mock.calls.map(([data]) => JSON.parse(data))).toContainEqual(
+      expect.objectContaining({
+        type: "operation-result",
+        result: expect.objectContaining({ revision: 1 }),
+      }),
+    );
+    await s.message(s.sockets[0]!, JSON.stringify({ type: "operation", operation: op }));
+    expect((await s.snapshot()).revision).toBe(1);
+    if (op.type !== "create" || op.content.kind !== "text") throw new Error();
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, toUint8Array(op.content.update));
+    const vector = Y.encodeStateVector(doc);
+    doc.getText("content").insert(4, " live");
+    const update = fromUint8Array(Y.encodeStateAsUpdate(doc, vector));
+    await s.message(
+      s.sockets[0]!,
+      JSON.stringify({
+        type: "operation",
+        operation: {
+          type: "edit",
+          opId: crypto.randomUUID(),
+          fileId: op.fileId,
+          path: "live.md",
+          baseRevision: 1,
+          content: { kind: "text", update },
+        },
+      }),
+    );
+    expect(ws.send.mock.calls.map(([data]) => JSON.parse(data))).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        update,
+        deviceId: s.deviceId,
+        file: expect.objectContaining({ size: 9 }),
+      }),
+    );
+    await s.alarm();
+    expect(s.objects.get(`vaults/${s.vaultId}/files/live.md`)).toBe("base live");
+  });
+
+  it("retains the deleted CRDT base for an offline delta after deletion and restart", async () => {
+    const s = setup();
+    const op = create("deleted.md", "base");
+    await s.operation(op);
+    if (op.type !== "create" || op.content.kind !== "text") throw new Error();
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, toUint8Array(op.content.update));
+    const vector = Y.encodeStateVector(doc);
+    doc.getText("content").insert(4, " offline");
+    await s.operation({
+      type: "delete",
+      opId: crypto.randomUUID(),
+      fileId: op.fileId,
+      baseRevision: 1,
+    });
+    s.restart();
+    const result = await s.operation({
+      type: "edit",
+      opId: crypto.randomUUID(),
+      fileId: op.fileId,
+      path: "deleted.md",
+      baseRevision: 1,
+      content: { kind: "text", update: fromUint8Array(Y.encodeStateAsUpdate(doc, vector)) },
+    });
+    expect(result.conflict).toBe(true);
+    await s.alarm();
+    expect([...s.objects.values()]).toEqual(["base offline"]);
+  });
+
+  it("publishes authenticated presence, clears on exit, and rejects revoked connections", async () => {
+    const s = setup();
+    await s.snapshot();
+    const ws = socket(s.deviceId);
+    s.sockets.push(ws as unknown as WebSocket);
+    const doc = new Y.Doc();
+    const position = fromUint8Array(
+      Y.encodeRelativePosition(Y.createRelativePositionFromTypeIndex(doc.getText("content"), 0)),
+    );
+    const presence = {
+      type: "presence",
+      fileId: crypto.randomUUID(),
+      clientId: 1,
+      name: "Laptop",
+      cursor: { anchor: position, head: position },
+      deviceId: crypto.randomUUID(),
+    };
+    await s.message(s.sockets[0]!, JSON.stringify(presence));
+    expect(JSON.parse(ws.send.mock.calls[0]![0])).toEqual({ ...presence, deviceId: s.deviceId });
+    await s.close(s.sockets[0]!);
+    expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toMatchObject({
+      type: "presence",
+      fileId: null,
+      cursor: null,
+    });
+    await s.revoke();
+    ws.send.mockClear();
+    await s.message(s.sockets[0]!, JSON.stringify(presence));
+    expect(ws.send).not.toHaveBeenCalled();
+    expect(ws.close).toHaveBeenCalledWith(1008, expect.any(String));
+  });
+
+  it("reports permanent operation rejection without dropping the connection", async () => {
+    const s = setup();
+    await s.snapshot();
+    await s.exclusions(["excluded"]);
+    const ws = socket(s.deviceId);
+    const op = create("excluded/a.md", "no");
+    await s.message(
+      ws as unknown as WebSocket,
+      JSON.stringify({ type: "operation", operation: op }),
+    );
+    expect(JSON.parse(ws.send.mock.calls[0]![0])).toMatchObject({
+      type: "operation-error",
+      opId: op.opId,
+      retryable: false,
+    });
+    expect(ws.close).not.toHaveBeenCalled();
+  });
+
+  it("rejects oversized and binary messages", async () => {
+    const s = setup();
+    const ws = socket(s.deviceId);
+    for (const message of [new ArrayBuffer(2), "x".repeat(16 * 1024 * 1024 + 1)]) {
+      await s.message(ws as unknown as WebSocket, message);
+    }
+    expect(ws.close).toHaveBeenCalledWith(1009, expect.any(String));
+    expect((await s.snapshot()).revision).toBe(0);
+  });
+
+  it("allows edits during R2 writes and leaves their newer revisions dirty", async () => {
+    const s = setup();
+    const op = create("busy.md", "base");
+    await s.operation(op);
+    let release!: () => void;
+    let entered!: () => void;
+    const writing = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const put = s.env.BUCKET.put.bind(s.env.BUCKET);
+    vi.spyOn(s.env.BUCKET, "put").mockImplementationOnce(
+      async (...args: Parameters<R2Bucket["put"]>) => {
+        entered();
+        await blocked;
+        return put(...args);
+      },
+    );
+    const flushing = s.alarm();
+    await writing;
+    await s.operation(create("new.md", "new"));
+    release();
+    await flushing;
+    expect((await s.snapshot()).revision).toBe(2);
+    expect((await s.snapshot()).r2Revision).toBe(1);
+    expect(s.storage.data.has("dirty:new.md")).toBe(true);
+    await s.alarm();
+    expect((await s.snapshot()).r2Revision).toBe(2);
+    expect(s.objects.get(`vaults/${s.vaultId}/files/new.md`)).toBe("new");
+  });
+});
+
+it("retains old rename copies and defers the alarm when a snapshot changes before transfer", async () => {
+  const s = setup();
+  const original = create("old.md", "safe");
+  await s.operation(original);
+  await s.alarm();
+  const previousRevision = (await s.snapshot()).r2Revision;
+  await s.operation(create("first.md", "first"));
+  await s.operation({
+    type: "move",
+    opId: crypto.randomUUID(),
+    fileId: original.fileId,
+    path: "intermediate.md",
+    basePathRevision: 1,
+  });
+  let release!: () => void;
+  let entered!: () => void;
+  const writing = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const put = s.env.BUCKET.put.bind(s.env.BUCKET);
+  vi.spyOn(s.env.BUCKET, "put").mockImplementationOnce(
+    async (...args: Parameters<R2Bucket["put"]>) => {
+      entered();
+      await blocked;
+      return put(...args);
+    },
+  );
+  const firstAlarm = s.storage.alarm!;
+  const flushing = s.alarm();
+  await writing;
+  await s.operation({
+    type: "move",
+    opId: crypto.randomUUID(),
+    fileId: original.fileId,
+    path: "latest.md",
+    basePathRevision: 3,
+  });
+  release();
+  await flushing;
+  expect((await s.snapshot()).r2Revision).toBe(previousRevision);
+  expect(s.objects.get(`vaults/${s.vaultId}/files/old.md`)).toBe("safe");
+  expect(s.storage.data.has("dirty:old.md")).toBe(true);
+  expect(s.storage.alarm).toBeGreaterThan(firstAlarm);
+  await s.alarm();
+  expect(s.objects.has(`vaults/${s.vaultId}/files/old.md`)).toBe(false);
+  expect(s.objects.get(`vaults/${s.vaultId}/files/latest.md`)).toBe("safe");
+  expect((await s.snapshot()).r2Revision).toBe(4);
 });

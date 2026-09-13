@@ -13,7 +13,12 @@ export {
 
 export { deviceSchema, idSchema, vaultInfoSchema, type Device, type VaultInfo } from "./identity";
 
-export { serverMessageSchema, type ServerMessage } from "./messages";
+export {
+  clientMessageSchema,
+  serverMessageSchema,
+  type ClientMessage,
+  type ServerMessage,
+} from "./messages";
 
 export {
   operationResultSchema,

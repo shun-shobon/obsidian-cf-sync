@@ -9,37 +9,103 @@ import { rebasePending } from "../service/pending-operations";
 import type { SyncState } from "../service/sync-state";
 
 export class SendPending {
+  private readonly inFlight = new Set<string>();
+  private textRun: Promise<void> | undefined;
+  private otherRun: Promise<void> | undefined;
+
   constructor(
     private readonly state: SyncState,
     private readonly api: ApiPort,
     private readonly documents: Documents,
+    private readonly serialize: <T>(work: () => Promise<T>) => Promise<T>,
+    private readonly operate: (operation: Operation) => Promise<OperationResult>,
+    private readonly onAcknowledged: (operation: Operation, result: OperationResult) => void,
   ) {}
 
   async run(isActive: () => boolean): Promise<void> {
-    for (const operation of this.state.data.pending) {
-      if (!isActive()) {
+    while (isActive()) {
+      const before = this.state.data.pending.map((op) => op.opId).join(",");
+      await Promise.all([this.runText(isActive), this.runOther(isActive)]);
+      const after = this.state.data.pending.map((op) => op.opId).join(",");
+      if (before === after || !after) {
         return;
       }
+    }
+  }
 
-      const local = this.state.data.files.find((file) => file.id === operation.fileId);
-      if (local && isExcluded(local.path, this.state.data.exclusions)) {
-        continue;
-      }
+  runText(isActive: () => boolean): Promise<void> {
+    if (!this.textRun) {
+      this.textRun = this.runLane(true, isActive).finally(() => {
+        this.textRun = undefined;
+      });
+    }
+    return this.textRun;
+  }
 
-      await this.uploadContent(operation);
-      await this.markAttempted(operation);
-      if (!isActive()) {
+  private runOther(isActive: () => boolean): Promise<void> {
+    if (!this.otherRun) {
+      this.otherRun = this.runLane(false, isActive).finally(() => {
+        this.otherRun = undefined;
+      });
+    }
+    return this.otherRun;
+  }
+
+  private async runLane(text: boolean, isActive: () => boolean): Promise<void> {
+    while (isActive()) {
+      const next = await this.serialize(async () => {
+        if (!isActive()) {
+          return undefined;
+        }
+        const seen = new Set<string>();
+        for (const operation of this.state.data.pending) {
+          if (seen.has(operation.fileId)) {
+            continue;
+          }
+          seen.add(operation.fileId);
+          const isText = "content" in operation && operation.content.kind === "text";
+          if (isText !== text || this.inFlight.has(operation.fileId)) {
+            continue;
+          }
+          const local = this.state.data.files.find((file) => file.id === operation.fileId);
+          if (local && isExcluded(local.path, this.state.data.exclusions)) {
+            continue;
+          }
+          await this.markAttempted(operation);
+          this.inFlight.add(operation.fileId);
+          return { operation: structuredClone(operation), local };
+        }
+        return undefined;
+      });
+      if (!next) {
         return;
       }
-
-      const result = await this.api.operate(operation);
-      if (result.opId !== operation.opId) {
-        throw new Error(t(($) => $.errors.operationMismatch));
-      }
-
-      await this.acknowledge(operation, result, local);
-      if ("content" in operation && operation.content.kind === "blob") {
-        await this.state.store.delete(`blob:${operation.content.blob.key}`);
+      const { operation, local } = next;
+      try {
+        // Network and attachment transfers never hold the local state queue.
+        await this.uploadContent(operation);
+        if (!isActive()) {
+          return;
+        }
+        const result = await this.operate(operation);
+        if (!isActive()) {
+          return;
+        }
+        if (result.opId !== operation.opId) {
+          throw new Error(t(($) => $.errors.operationMismatch));
+        }
+        await this.serialize(async () => {
+          if (!isActive()) {
+            return;
+          }
+          await this.acknowledge(operation, result, local);
+          this.onAcknowledged(operation, result);
+          if ("content" in operation && operation.content.kind === "blob") {
+            await this.state.store.delete(`blob:${operation.content.blob.key}`);
+          }
+        });
+      } finally {
+        this.inFlight.delete(operation.fileId);
       }
     }
   }

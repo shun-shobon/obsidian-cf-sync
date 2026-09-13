@@ -1,6 +1,7 @@
 export const enErrors = {
   serverOrigin: "Enter an HTTPS server URL without a path.",
   websocketDisconnected: "The WebSocket connection was lost.",
+  websocketRejected: "The sync message was rejected: {{reason}}",
   operationMismatch: "The operation response ID does not match.",
   missingAttachment: "Pending attachment data is missing.",
   missingIncoming: "Incoming file data is missing.",
@@ -39,6 +40,7 @@ export const enErrors = {
 export const jaErrors = {
   serverOrigin: "サーバーはパスを含まない HTTPS URL を指定してください",
   websocketDisconnected: "WebSocket が切断されました",
+  websocketRejected: "同期メッセージが拒否されました: {{reason}}",
   operationMismatch: "操作応答の ID が一致しません",
   missingAttachment: "未送信の添付データがありません",
   missingIncoming: "受信中のファイルデータがありません",
