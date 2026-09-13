@@ -35,13 +35,11 @@ Clone this repository and install dependencies with `pnpm install --frozen-lockf
 | -------------------- | -------------------------------------------------------------------------- |
 | `ACCESS_TEAM_DOMAIN` | Your team domain, such as `example.cloudflareaccess.com`, without a scheme |
 | `ACCESS_AUD`         | The Application Audience of your Access application                        |
-| `OWNER_EMAIL`        | Your email address, allowed to sync                                        |
 
 ```sh
 pnpm --filter @cf-sync/worker exec wrangler login
 pnpm --filter @cf-sync/worker exec wrangler secret put ACCESS_TEAM_DOMAIN
 pnpm --filter @cf-sync/worker exec wrangler secret put ACCESS_AUD
-pnpm --filter @cf-sync/worker exec wrangler secret put OWNER_EMAIL
 pnpm deploy
 ```
 
@@ -66,6 +64,6 @@ Cloudflare charges may apply depending on your plan and usage. Review the pricin
 
 The plugin communicates with your configured server over HTTPS and secure WebSockets. It sends synced file contents and paths, edits and deletion operations, file metadata, remote vault names and identifiers, device names and identifiers, and sync exclusion settings. Your server processes this data in Cloudflare Workers and Durable Objects and stores files in your R2 bucket.
 
-Sign-in uses your server's Cloudflare Access OAuth endpoints and, in your browser, the identity provider configured in Access. OAuth registration, authorization, and token exchange send the information needed to authenticate; your server receives your email address in the Access identity assertion to check that you are allowed to sync.
+Sign-in uses your server's Cloudflare Access OAuth endpoints and, in your browser, the identity provider configured in Access. OAuth registration, authorization, and token exchange send the information needed to authenticate. Your Access policy controls who can sync, and your server verifies the Access JWT's signature, issuer, audience, and expiration.
 
 CF Sync does not provide end-to-end encryption. Transport is encrypted, but the server can read synced content, and the latest notes and attachments are stored in R2 as regular files.

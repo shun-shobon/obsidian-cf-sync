@@ -7,7 +7,7 @@ import type { Env } from "./env";
 const keySets = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
 export async function authenticate(request: Request, env: Env): Promise<void> {
-  if (!env.ACCESS_TEAM_DOMAIN || !env.ACCESS_AUD || !env.OWNER_EMAIL) {
+  if (!env.ACCESS_TEAM_DOMAIN || !env.ACCESS_AUD) {
     throw new ApplicationError("unavailable", "Access is not configured");
   }
 
@@ -26,22 +26,12 @@ export async function authenticate(request: Request, env: Env): Promise<void> {
   }
 
   try {
-    const { payload } = await jwtVerify(assertion, keys, {
+    await jwtVerify(assertion, keys, {
       issuer,
       audience: env.ACCESS_AUD,
       algorithms: ["RS256"],
-      requiredClaims: ["exp", "sub", "email"],
+      requiredClaims: ["exp", "sub"],
     });
-
-    const email = payload["email"];
-
-    if (typeof email !== "string") {
-      throw new Error("Owner email missing");
-    }
-
-    if (email.toLowerCase() !== env.OWNER_EMAIL.toLowerCase()) {
-      throw new Error("Owner mismatch");
-    }
   } catch {
     throw new ApplicationError("unauthenticated", "Invalid Access identity");
   }

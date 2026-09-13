@@ -35,13 +35,11 @@ https://github.com/user-attachments/assets/b756b66e-3c62-4bcb-9710-f038a03f7667
 | -------------------- | -------------------------------------------------------- |
 | `ACCESS_TEAM_DOMAIN` | `example.cloudflareaccess.com`の形式。スキームは付けない |
 | `ACCESS_AUD`         | AccessアプリのApplication Audience                       |
-| `OWNER_EMAIL`        | 同期を許可する自分のメールアドレス                       |
 
 ```sh
 pnpm --filter @cf-sync/worker exec wrangler login
 pnpm --filter @cf-sync/worker exec wrangler secret put ACCESS_TEAM_DOMAIN
 pnpm --filter @cf-sync/worker exec wrangler secret put ACCESS_AUD
-pnpm --filter @cf-sync/worker exec wrangler secret put OWNER_EMAIL
 pnpm deploy
 ```
 
@@ -66,6 +64,6 @@ Cloudflareアカウントと、そのアカウント内に自分で構築・管�
 
 プラグインは、設定したサーバーとHTTPSおよび暗号化されたWebSocketで通信します。同期対象のファイル内容とパス、編集・削除操作、ファイルのメタデータ、リモートVaultの名前と識別子、端末名と識別子、同期除外設定を送信します。サーバーはこれらのデータをCloudflare WorkersとDurable Objectsで処理し、ファイルを自分のR2バケットに保存します。
 
-ログイン時には、サーバーのCloudflare Access OAuthエンドポイントと、Accessに設定した認証プロバイダー（ブラウザ内）へ接続します。OAuthのクライアント登録・認可・トークン交換に必要な情報を送信し、サーバーはAccessの認証情報に含まれるメールアドレスで同期の許可を確認します。
+ログイン時には、サーバーのCloudflare Access OAuthエンドポイントと、Accessに設定した認証プロバイダー（ブラウザ内）へ接続します。OAuthのクライアント登録・認可・トークン交換に必要な情報を送信します。同期を許可するユーザーはAccessポリシーで制限し、サーバーはAccessのJWTの署名・発行元・宛先・有効期限を検証します。
 
 CF Syncはエンドツーエンド暗号化に対応していません。通信は暗号化されますが、サーバーは同期内容を読み取ることができ、最新版のノートと添付ファイルは通常のファイルとしてR2に保存されます。
