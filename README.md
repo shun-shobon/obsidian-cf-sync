@@ -57,6 +57,10 @@ In Obsidian, open **Settings → Community plugins → Browse**, search for **CF
 
 Each local vault connects to one remote vault. To use a different remote vault, create a separate local vault.
 
+## Updating to 0.2.0
+
+Version 0.2.0 sends sync operations and cursor information over WebSocket, so you must also redeploy the Worker from the 0.2.0 source. Keep your existing settings in `packages/worker/wrangler.toml`, run `pnpm install --frozen-lockfile` and `pnpm deploy`, then update the plugin on each device. The 0.2.0 plugin cannot sync with the 0.1.3 Worker.
+
 ## Requirements and costs
 
 CF Sync requires a Cloudflare account and a server that you deploy and maintain in that account, using Workers, Durable Objects, R2, and Cloudflare Access with Managed OAuth. You also need a custom domain for the server and an email address allowed by your Access policy.

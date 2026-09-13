@@ -57,6 +57,10 @@ Obsidianの**設定 → コミュニティプラグイン → 閲覧**から**CF
 
 1つのローカルVaultを1つのリモートVaultへ接続します。別のリモートVaultを使う場合は別のローカルVaultを用意します。
 
+## 0.2.0への更新
+
+0.2.0では同期操作とカーソル情報をWebSocketで送信するため、Workerも0.2.0のソースから再デプロイする必要があります。`packages/worker/wrangler.toml`の既存設定を維持し、`pnpm install --frozen-lockfile`と`pnpm deploy`を実行してから、各端末のプラグインを更新してください。0.2.0のプラグインは0.1.3のWorkerとは同期できません。
+
 ## 利用要件と料金
 
 Cloudflareアカウントと、そのアカウント内に自分で構築・管理するサーバーが必要です。サーバーではWorkers・Durable Objects・R2と、Managed OAuthを有効にしたCloudflare Accessを使います。サーバー用のカスタムドメインと、Accessポリシーで許可するメールアドレスも必要です。
