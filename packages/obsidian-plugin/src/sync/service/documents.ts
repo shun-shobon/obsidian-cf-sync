@@ -6,11 +6,13 @@ import type { StoredData, SyncStore } from "../ports/sync-store";
 
 export class Documents {
   private readonly docs = new Map<string, Y.Doc>();
+  private readonly queuedVectors = new WeakMap<Y.Doc, Uint8Array>();
   private readonly references = new Map<Y.Doc, number>();
 
   constructor(
     private readonly store: SyncStore,
     private readonly onEdit: (file: LocalFile, doc: Y.Doc) => void,
+    private readonly onRemap: (doc: Y.Doc, fileId: string) => void,
   ) {}
 
   get(id: string): Y.Doc | undefined {
@@ -30,6 +32,7 @@ export class Documents {
     }
 
     this.docs.set(file.id, doc);
+    this.queuedVectors.set(doc, Y.encodeStateVector(doc));
     doc.on("update", (_update: Uint8Array, origin: unknown) => {
       const isEditorUpdate = origin !== "remote" && origin !== "capture";
       if (isEditorUpdate) {
@@ -38,6 +41,18 @@ export class Documents {
     });
 
     return doc;
+  }
+
+  queuedVector(doc: Y.Doc): Uint8Array {
+    const vector = this.queuedVectors.get(doc);
+    if (!vector) {
+      throw new Error("Document is not registered");
+    }
+    return vector;
+  }
+
+  markQueued(doc: Y.Doc, update: Uint8Array): void {
+    this.queuedVectors.set(doc, Y.encodeStateVectorFromUpdate(update));
   }
 
   async retain(file: LocalFile): Promise<Y.Doc> {
@@ -79,6 +94,7 @@ export class Documents {
     if (doc) {
       this.docs.delete(oldId);
       this.docs.set(file.id, doc);
+      this.onRemap(doc, file.id);
 
       return { key: `doc:${file.id}`, value: Y.encodeStateAsUpdate(doc) };
     }

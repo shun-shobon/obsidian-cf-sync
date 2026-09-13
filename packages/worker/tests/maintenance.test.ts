@@ -59,7 +59,7 @@ describe("maintenance deadlines", () => {
         .mockRejectedValueOnce(new Error("R2 down"))
         .mockResolvedValue(null),
     } as unknown as VaultArchive;
-    const flush = new FlushVault(repository, sockets, archive, maintenance);
+    const flush = new FlushVault(repository, sockets, archive, maintenance, (action) => action());
 
     await expect(flush.execute()).rejects.toThrow("R2 down");
     expect(await state.getAlarm()).toBeGreaterThan(Date.now());
@@ -95,7 +95,12 @@ it("keeps an idle socket open beyond fifteen minutes and closes it when its devi
 
   try {
     const deviceId = crypto.randomUUID();
-    const socket = { readyState: WebSocket.OPEN, send: vi.fn(), close: vi.fn() };
+    const socket = {
+      deserializeAttachment: () => null,
+      readyState: WebSocket.OPEN,
+      send: vi.fn(),
+      close: vi.fn(),
+    };
     const getWebSockets = vi.fn(() => [socket]);
     const state = { storage: storage(), getWebSockets } as unknown as DurableObjectState;
     const sockets = new VaultSockets(state);
@@ -117,4 +122,43 @@ it("keeps an idle socket open beyond fifteen minutes and closes it when its devi
   } finally {
     vi.useRealTimers();
   }
+});
+
+it("loads one document at a time when flushing a vault with many dirty notes", async () => {
+  const meta = { vaultId: "vault", revision: 160, r2Revision: 0, exclusions: [] };
+  const files = Array.from({ length: 160 }, (_, index) => ({
+    file: { id: String(index), path: `${index}.md`, revision: index + 1 },
+  }));
+  let loaded = 0;
+  let written = 0;
+  const markFlushed = vi.fn();
+  const repository = {
+    meta: async () => meta,
+    files: async () => files,
+    dirtyPaths: async () => files.map(({ file }) => file.path),
+    content: async () => {
+      expect(loaded).toBe(written);
+      loaded++;
+      return { kind: "text", update: "large document CRDT" };
+    },
+    markFlushed,
+  } as unknown as VaultStore;
+  const archive = {
+    write: async () => {
+      written++;
+    },
+    delete: vi.fn(),
+  } as unknown as VaultArchive;
+  const state = storage();
+  state.data.set("maintenance:flush", Date.now() - 1);
+  const flush = new FlushVault(
+    repository,
+    { expire: async () => {}, broadcast: vi.fn() },
+    archive,
+    new VaultMaintenance(state as unknown as DurableObjectStorage),
+    (action) => action(),
+  );
+  await flush.execute();
+  expect(written).toBe(files.length);
+  expect(markFlushed).toHaveBeenCalledOnce();
 });

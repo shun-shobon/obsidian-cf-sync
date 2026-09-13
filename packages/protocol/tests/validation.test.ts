@@ -1,7 +1,14 @@
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 
-import { idSchema, operationResultSchema, operationSchema, pathSchema } from "../src/index";
+import {
+  clientMessageSchema,
+  serverMessageSchema,
+  idSchema,
+  operationResultSchema,
+  operationSchema,
+  pathSchema,
+} from "../src/index";
 
 const opId = "920b5878-2867-47ad-81a8-68cbb2681303";
 const fileId = "7ae76e93-bd8c-4e62-8481-3c589ffeb07a";
@@ -70,5 +77,43 @@ describe("wire validation boundaries", () => {
 
     expect(v.safeParse(pathSchema, allowed).success).toBe(true);
     expect(v.safeParse(pathSchema, oversized).success).toBe(false);
+  });
+});
+
+describe("realtime message validation", () => {
+  const presence = {
+    type: "presence",
+    fileId,
+    clientId: 1,
+    name: "Desktop",
+    cursor: { anchor: "AA==", head: "AA==" },
+  };
+  it("validates presence and strips claimed device identity from client input", () => {
+    expect(v.parse(clientMessageSchema, { ...presence, deviceId: opId })).toEqual(presence);
+    expect(v.safeParse(serverMessageSchema, { ...presence, deviceId: opId }).success).toBe(true);
+    expect(
+      v.safeParse(clientMessageSchema, { ...presence, fileId: null, cursor: null }).success,
+    ).toBe(true);
+  });
+  it.each([
+    { clientId: -1 },
+    { clientId: 1.5 },
+    { cursor: { anchor: "x".repeat(1025), head: "AA==" } },
+  ])("rejects invalid presence fields %j", (fields) => {
+    expect(v.safeParse(clientMessageSchema, { ...presence, ...fields }).success).toBe(false);
+  });
+  it("requires an operation error to identify both the operation and retry behavior", () => {
+    expect(
+      v.safeParse(serverMessageSchema, {
+        type: "operation-error",
+        opId,
+        message: "excluded",
+        retryable: false,
+      }).success,
+    ).toBe(true);
+    expect(
+      v.safeParse(serverMessageSchema, { type: "operation-error", opId, message: "excluded" })
+        .success,
+    ).toBe(false);
   });
 });

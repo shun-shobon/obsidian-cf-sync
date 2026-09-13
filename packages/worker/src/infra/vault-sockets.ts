@@ -1,10 +1,20 @@
-import { digest, type ServerMessage } from "@cf-sync/protocol";
+import { digest, type ClientMessage, type ServerMessage } from "@cf-sync/protocol";
+import { toUint8Array } from "js-base64";
+import { decodeRelativePosition } from "yjs";
 
 import { ApplicationError } from "../domain/errors";
 
 interface Ticket {
   deviceId: string;
   expiresAt: number;
+}
+
+type Presence = Extract<ServerMessage, { type: "presence" }>;
+
+interface Connection {
+  deviceId: string;
+  presence: Presence | null;
+  updatedAt: number;
 }
 
 export class VaultSockets {
@@ -20,6 +30,7 @@ export class VaultSockets {
     await this.state.storage.put(`revoked:${deviceId}`, true);
 
     for (const ws of this.state.getWebSockets(deviceId)) {
+      this.leave(ws);
       ws.close(4003, "Device revoked");
     }
   }
@@ -60,11 +71,62 @@ export class VaultSockets {
       throw new ApplicationError("unauthenticated", "Expired or consumed ticket");
     }
 
+    for (const existing of this.state.getWebSockets(ticket.deviceId)) {
+      this.leave(existing);
+      existing.close(4000, "Connection replaced");
+    }
     const pair = new WebSocketPair();
     this.state.acceptWebSocket(pair[1], [ticket.deviceId]);
+    pair[1].serializeAttachment({
+      deviceId: ticket.deviceId,
+      presence: null,
+      updatedAt: 0,
+    } satisfies Connection);
+    for (const ws of this.state.getWebSockets()) {
+      const connection = ws.deserializeAttachment() as Connection | null;
+      if (
+        ws.readyState === WebSocket.OPEN &&
+        connection?.presence &&
+        connection.updatedAt > Date.now() - 10_000
+      ) {
+        pair[1].send(JSON.stringify(connection.presence));
+      }
+    }
     console.info({ event: "websocket.connected", deviceId: ticket.deviceId });
 
     return new Response(null, { status: 101, webSocket: pair[0] });
+  }
+
+  async authenticate(ws: WebSocket): Promise<string> {
+    const connection = ws.deserializeAttachment() as Connection | null;
+    if (!connection || ws.readyState !== WebSocket.OPEN) {
+      throw new ApplicationError("unauthenticated", "WebSocket is not authenticated");
+    }
+    await this.assertDeviceActive(connection.deviceId);
+    return connection.deviceId;
+  }
+
+  presence(
+    ws: WebSocket,
+    deviceId: string,
+    value: Extract<ClientMessage, { type: "presence" }>,
+  ): void {
+    if (value.cursor) {
+      decodeRelativePosition(toUint8Array(value.cursor.anchor));
+      decodeRelativePosition(toUint8Array(value.cursor.head));
+    }
+    const presence: Presence = { ...value, deviceId };
+    ws.serializeAttachment({ deviceId, presence, updatedAt: Date.now() } satisfies Connection);
+    this.broadcast(presence);
+  }
+
+  leave(ws: WebSocket): void {
+    const connection = ws.deserializeAttachment() as Connection | null;
+    if (!connection?.presence) {
+      return;
+    }
+    ws.serializeAttachment({ ...connection, presence: null });
+    this.broadcast({ ...connection.presence, fileId: null, cursor: null });
   }
 
   broadcast(message: ServerMessage): void {

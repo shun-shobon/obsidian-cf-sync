@@ -21,6 +21,8 @@ afterEach(async () => {
 function client(server: Server, vault: Vault, name = crypto.randomUUID()) {
   const store = new IndexedDbStore(name);
   const engine = new SyncEngine({
+    deviceId: crypto.randomUUID(),
+    deviceName: "Test device",
     vault,
     api: server.api,
     store,
@@ -121,6 +123,27 @@ describe("persistent synchronization", () => {
     await next.engine.start();
 
     expect([...server.docs.values()][0]!.doc.getText("content").toString()).toBe("offline edit");
+  });
+
+  it("persists every coalesced delta across a restart while offline", async () => {
+    const server = new Server();
+    const vault = new Vault();
+    const name = crypto.randomUUID();
+    await vault.write("note.md", encode("base"));
+    const first = client(server, vault, name);
+    await first.engine.start();
+    first.engine.pause();
+    for (const value of ["base A", "base AB", "base ABC"]) {
+      await vault.write("note.md", encode(value));
+      await first.engine.capture("note.md");
+    }
+    expect((await first.store.load())!.pending).toHaveLength(1);
+    await first.engine.dispose();
+    engines.splice(engines.indexOf(first.engine), 1);
+    const next = client(server, vault, name);
+    await next.engine.start();
+    expect([...server.docs.values()][0]!.doc.getText("content").toString()).toBe("base ABC");
+    expect((await next.store.load())!.pending).toHaveLength(0);
   });
 
   it("recovers a durable editor update when the disk write was interrupted", async () => {

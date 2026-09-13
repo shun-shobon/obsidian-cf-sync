@@ -1,4 +1,9 @@
-import { idSchema, type BlobRef, type OperationResult } from "@cf-sync/protocol";
+import {
+  clientMessageSchema,
+  idSchema,
+  type BlobRef,
+  type OperationResult,
+} from "@cf-sync/protocol";
 import { DurableObject } from "cloudflare:workers";
 import * as v from "valibot";
 
@@ -11,7 +16,7 @@ import type { Env } from "../env";
 import { errorResponse } from "../http/responses";
 import { R2VaultArchive } from "../r2-vault-archive";
 import { jsonStream, readOperation } from "../rpc-json";
-import { rpcResult, type RpcResult } from "../rpc-result";
+import { unwrapRpcResult, rpcResult, type RpcResult } from "../rpc-result";
 import { VaultMaintenance } from "../vault-maintenance";
 import { VaultRepository } from "../vault-repository";
 import { VaultSockets } from "../vault-sockets";
@@ -34,6 +39,7 @@ export class Vault extends DurableObject<Env> {
       this.sockets,
       new R2VaultArchive(env.BUCKET),
       this.maintenance,
+      (action) => this.serial(action),
     );
   }
 
@@ -46,23 +52,27 @@ export class Vault extends DurableObject<Env> {
     deviceId: string,
     stream: ReadableStream<Uint8Array>,
   ): Promise<RpcResult<OperationResult>> {
-    return this.execute(vaultId, deviceId, async () => {
+    return rpcResult(async () => {
       const operation = await readOperation(stream);
-      const blobs = new BlobStorage(this.env.BUCKET, vaultId);
-      const operations = new ApplyOperation(this.repository, this.sockets, blobs);
+      return unwrapRpcResult(
+        await this.execute(vaultId, deviceId, async () => {
+          const blobs = new BlobStorage(this.env.BUCKET, vaultId);
+          const operations = new ApplyOperation(this.repository, this.sockets, blobs);
 
-      const result = await operations.execute(operation);
-      console.info({
-        event: "sync.operation.completed",
-        vaultId,
-        deviceId,
-        operationId: operation.opId,
-        operationType: operation.type,
-        revision: result.revision,
-        conflict: result.conflict,
-      });
+          const result = await operations.execute(operation, deviceId);
+          console.info({
+            event: "sync.operation.completed",
+            vaultId,
+            deviceId,
+            operationId: operation.opId,
+            operationType: operation.type,
+            revision: result.revision,
+            conflict: result.conflict,
+          });
 
-      return result;
+          return result;
+        }),
+      );
     });
   }
 
@@ -110,7 +120,8 @@ export class Vault extends DurableObject<Env> {
     deviceId: string,
     key: string,
   ): Promise<RpcResult<ReadableStream<Uint8Array>>> {
-    return this.execute(vaultId, deviceId, async () => {
+    return rpcResult(async () => {
+      unwrapRpcResult(await this.execute(vaultId, deviceId, async () => undefined));
       const blobs = new BlobStorage(this.env.BUCKET, vaultId);
       const object = await blobs.get(key);
 
@@ -126,11 +137,15 @@ export class Vault extends DurableObject<Env> {
     body: ReadableStream<Uint8Array> | null,
     sizeHeader: string | null,
   ): Promise<RpcResult<BlobRef>> {
-    return this.execute(vaultId, deviceId, async () => {
+    return rpcResult(async () => {
+      unwrapRpcResult(
+        await this.execute(vaultId, deviceId, async () => this.maintenance.request("blobs")),
+      );
       const blobs = new BlobStorage(this.env.BUCKET, vaultId);
-      await this.maintenance.request("blobs");
       const blob = await blobs.upload(key, digest, body, sizeHeader);
-      await this.maintenance.schedule();
+      unwrapRpcResult(
+        await this.execute(vaultId, deviceId, async () => this.maintenance.request("blobs")),
+      );
 
       return blob;
     });
@@ -164,16 +179,68 @@ export class Vault extends DurableObject<Env> {
   }
 
   override alarm(): Promise<void> {
-    return this.serial(() => this.flush.execute());
+    return this.flush.execute();
   }
 
-  override async webSocketMessage(ws: WebSocket): Promise<void> {
-    ws.close(1008, "Use authenticated HTTP for operations");
+  override async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer): Promise<void> {
+    try {
+      if (
+        typeof data !== "string" ||
+        new TextEncoder().encode(data).byteLength > 16 * 1024 * 1024
+      ) {
+        ws.close(1009, "Invalid message size");
+        this.sockets.leave(ws);
+        return;
+      }
+      const message = v.parse(clientMessageSchema, JSON.parse(data));
+      const deviceId = await this.sockets.authenticate(ws);
+      if (message.type === "presence") {
+        this.sockets.presence(ws, deviceId, message);
+        return;
+      }
+      await this.serial(async () => {
+        await this.sockets.authenticate(ws);
+        const meta = await this.repository.meta();
+        const operations = new ApplyOperation(
+          this.repository,
+          this.sockets,
+          new BlobStorage(this.env.BUCKET, meta.vaultId),
+        );
+        try {
+          const result = await operations.execute(message.operation, deviceId);
+          ws.send(JSON.stringify({ type: "operation-result", result }));
+        } catch (error) {
+          const applicationError = error instanceof ApplicationError;
+          let errorMessage = "Operation persistence failed";
+          if (applicationError) {
+            errorMessage = error.message;
+          }
+          ws.send(
+            JSON.stringify({
+              type: "operation-error",
+              opId: message.operation.opId,
+              message: errorMessage,
+              retryable: !applicationError,
+            }),
+          );
+        }
+      });
+    } catch (error) {
+      console.error(error);
+      this.sockets.leave(ws);
+      ws.close(1008, "Invalid or rejected sync message");
+    }
   }
 
   override async webSocketClose(ws: WebSocket, code: number): Promise<void> {
+    this.sockets.leave(ws);
     ws.close(code);
     console.info({ event: "websocket.closed", code });
+  }
+
+  override async webSocketError(ws: WebSocket): Promise<void> {
+    this.sockets.leave(ws);
+    ws.close(1011, "WebSocket error");
   }
 
   private execute<T>(

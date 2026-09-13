@@ -3,6 +3,7 @@ import * as v from "valibot";
 
 import { ConnectionError } from "../../domain/connection-error";
 import { t } from "../../i18n";
+import type { SyncSocket } from "../../sync/ports/api-port";
 
 interface ConnectionTicket {
   url: string;
@@ -14,7 +15,7 @@ export async function connectSocket(
   origin: string,
   onMessage: (message: ServerMessage) => void,
   onClose: () => void,
-): Promise<{ close(): void }> {
+): Promise<SyncSocket> {
   const url = new URL(ticket.url);
   const isTrustedUrl = url.protocol === "wss:" && url.host === new URL(origin).host;
   const isExpired = ticket.expiresAt <= Date.now();
@@ -26,9 +27,24 @@ export async function connectSocket(
   const socket = new WebSocket(url);
   receiveMessages(socket, onMessage);
   await waitUntilOpen(socket);
-  socket.onclose = onClose;
+  socket.onclose = (event) => {
+    if (event.code === 1008 || event.code === 1009) {
+      onMessage({
+        type: "error",
+        message: t(($) => $.errors.websocketRejected, { reason: event.reason }),
+      });
+      return;
+    }
+    onClose();
+  };
 
   return {
+    send: (message) => {
+      if (socket.readyState !== WebSocket.OPEN) {
+        throw new ConnectionError(t(($) => $.errors.websocketDisconnected));
+      }
+      socket.send(JSON.stringify(message));
+    },
     close: () => {
       socket.onclose = null;
       socket.close();

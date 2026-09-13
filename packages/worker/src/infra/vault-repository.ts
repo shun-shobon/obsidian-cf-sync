@@ -64,6 +64,14 @@ export class VaultRepository {
     return stored;
   }
 
+  async deletedContent(id: string): Promise<Content | undefined> {
+    const stored = await this.storage.get<StoredFile>(`deleted:${id}`);
+    if (!stored) {
+      return undefined;
+    }
+    return this.content(stored);
+  }
+
   operationResult(id: string): Promise<OperationResult | undefined> {
     return this.storage.get<OperationResult>(`op:${id}`);
   }
@@ -114,7 +122,7 @@ export class VaultRepository {
 
       for (const item of await this.files()) {
         if (!isExcluded(item.file.path, exclusions)) {
-          await tx.put(`dirty:${item.file.path}`, true);
+          await tx.put(`dirty:${item.file.path}`, meta.revision);
         }
       }
     });
@@ -134,7 +142,7 @@ export class VaultRepository {
       }
 
       for (const path of changes.dirty) {
-        await tx.put(`dirty:${path}`, true);
+        await tx.put(`dirty:${path}`, meta.revision);
       }
 
       await tx.put(`op:${changes.result.opId}`, changes.result);
@@ -158,18 +166,26 @@ export class VaultRepository {
   }
 
   async markFlushed(meta: VaultMeta, paths: string[]): Promise<void> {
-    meta.r2Revision = meta.revision;
     await this.storage.transaction(async (tx) => {
-      await tx.put("meta", meta);
-
+      const latest = await this.meta();
+      latest.r2Revision = meta.revision;
+      await tx.put("meta", latest);
+      meta.r2Revision = meta.revision;
       for (const path of paths) {
-        await tx.delete(`dirty:${path}`);
+        const revision = await tx.get<number>(`dirty:${path}`);
+        if (revision !== undefined && revision <= meta.revision) {
+          await tx.delete(`dirty:${path}`);
+        }
       }
     });
   }
 
   private async deleteFile(tx: DurableObjectTransaction, stored: StoredFile): Promise<void> {
     await tx.delete(`file:${stored.file.id}`);
+    if (stored.file.kind === "text") {
+      await tx.put(`deleted:${stored.file.id}`, stored);
+      return;
+    }
 
     for (let index = 0; index < stored.chunks; index++) {
       await tx.delete(`text:${stored.file.id}:${index}`);

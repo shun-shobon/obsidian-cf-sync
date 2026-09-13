@@ -17,7 +17,7 @@ import { ConnectionError } from "../../domain/connection-error";
 import { DocumentNotFoundError } from "../../domain/document-not-found-error";
 import { urlSchema } from "../../domain/url-schema";
 import { t } from "../../i18n";
-import type { ApiPort } from "../../sync/ports/api-port";
+import type { ApiPort, SyncSocket } from "../../sync/ports/api-port";
 import { OAuthClient } from "../auth/oauth-client";
 
 import type { HttpRequest, Transport } from "./transport";
@@ -178,7 +178,7 @@ export class ApiClient implements ApiPort {
   async connect(
     onMessage: (message: ServerMessage) => void,
     onClose: () => void,
-  ): Promise<{ close(): void }> {
+  ): Promise<SyncSocket> {
     const response = await this.request(this.vaultPath("/tickets"), "POST");
     const ticket = v.parse(connectionTicketSchema, response);
 

@@ -13,6 +13,7 @@ export interface VaultStore {
   meta(): Promise<VaultMeta>;
   files(): Promise<StoredFile[]>;
   content(stored: StoredFile): Promise<Content>;
+  deletedContent(id: string): Promise<Content | undefined>;
   operationResult(id: string): Promise<OperationResult | undefined>;
   commit(meta: VaultMeta, files: StoredFile[], changes: OperationChanges): Promise<void>;
   dirtyPaths(): Promise<string[]>;

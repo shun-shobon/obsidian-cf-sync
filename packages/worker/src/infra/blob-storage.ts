@@ -74,6 +74,7 @@ export class BlobStorage {
       const writing = body.pipeTo(stream.writable, { signal: abort.signal });
       const [object] = await Promise.all([
         this.bucket.put(this.key(key), stream.readable, {
+          onlyIf: { etagDoesNotMatch: "*" },
           sha256: expected,
           customMetadata: { digest: expected },
         }),

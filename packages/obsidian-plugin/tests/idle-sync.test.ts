@@ -29,17 +29,20 @@ function setup() {
     disconnect: () => void;
     close: ReturnType<typeof vi.fn>;
   }[] = [];
+  const openSocket = server.api.connect.bind(server.api);
   const connect = vi
     .spyOn(server.api, "connect")
     .mockImplementation(async (message, disconnect) => {
       const close = vi.fn();
       sockets.push({ message, disconnect, close });
-      return { close };
+      return { ...(await openSocket(message, disconnect)), close };
     });
   const readSnapshot = server.api.snapshot.bind(server.api);
   const snapshot = vi.spyOn(server.api, "snapshot").mockImplementation(readSnapshot);
   const store = new IndexedDbStore(crypto.randomUUID());
   const engine = new SyncEngine({
+    deviceId: crypto.randomUUID(),
+    deviceName: "Test device",
     vault,
     api: server.api,
     store,
@@ -77,7 +80,7 @@ it("receives a change while idle without periodic synchronization", async () => 
   remote.file.revision += 1;
   sockets[0]!.message({ type: "changed", fileId: id, revision: remote.file.revision });
   await settled(engine);
-  expect(vault.text("note.md")).toBe("hello remote");
+  await vi.waitFor(() => expect(vault.text("note.md")).toBe("hello remote"));
 });
 
 it("backs off after failures and stays quiet once reconnected", async () => {
@@ -146,7 +149,7 @@ it("closes a connection that finishes opening after pause", async () => {
   const close = vi.fn();
   connect.mockImplementation(async () => {
     await opening;
-    return { close };
+    return { close, send() {} };
   });
   const starting = engine.start();
   await vi.waitFor(() => expect(connect).toHaveBeenCalledTimes(1));
@@ -172,11 +175,10 @@ it("sends local changes discovered while receiving a document without another us
   });
   sockets[0]!.message({ type: "changed", fileId: id, revision: remote.file.revision });
   await settled(engine);
-  expect((await store.load())!.pending.length).toBeGreaterThan(0);
   await vi.advanceTimersByTimeAsync(250);
   await settled(engine);
-  expect((await store.load())!.pending).toHaveLength(0);
-  expect(remote.doc.getText("content").toString()).toContain("local");
+  await vi.waitFor(async () => expect((await store.load())!.pending).toHaveLength(0));
+  await vi.waitFor(() => expect(remote.doc.getText("content").toString()).toContain("local"));
 });
 
 it("does not retry a local storage failure as a network failure", async () => {
@@ -214,6 +216,6 @@ it("reconciles again when a file is deleted after taking a snapshot", async () =
   await engine.syncNow();
   await vi.advanceTimersByTimeAsync(100);
   await settled(engine);
-  expect(await vault.list()).toEqual([]);
+  await vi.waitFor(async () => expect(await vault.list()).toEqual([]));
   expect(vi.getTimerCount()).toBe(0);
 });

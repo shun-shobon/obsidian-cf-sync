@@ -8,11 +8,14 @@ https://github.com/user-attachments/assets/b756b66e-3c62-4bcb-9710-f038a03f7667
 
 ## Features
 
-- **Concurrent editing**: Edit the same Markdown note on multiple devices, with changes synced in real time.
+- **Concurrent editing**: Edit the same Markdown note on multiple devices, with changes synced while you type.
+- **Live cursors**: Share your active editing pane and always see other devices’ cursors, selections, and names in the same note.
 - **R2 storage**: Store the latest versions of notes and attachments as regular files in your own R2 bucket.
 - **Offline support**: Save changes locally while offline and sync them when you reconnect.
 - **Conflict preservation**: Keep attachments and other files that cannot be merged automatically under separate names.
 - **Mobile support**: Works with Obsidian on iOS and Android.
+
+For up to five devices, the targets are about 0.5 seconds for text and 0.2 seconds for cursors. These targets have not been measured; the collaboration changes still need testing on desktop, iOS, and Android devices.
 
 ## Getting started
 
@@ -62,7 +65,7 @@ Cloudflare charges may apply depending on your plan and usage. Review the pricin
 
 ## Network access and data
 
-The plugin communicates with your configured server over HTTPS and secure WebSockets. It sends synced file contents and paths, edits and deletion operations, file metadata, remote vault names and identifiers, device names and identifiers, and sync exclusion settings. Your server processes this data in Cloudflare Workers and Durable Objects and stores files in your R2 bucket.
+The plugin communicates with your configured server over HTTPS and secure WebSockets. It sends synced file contents and paths, edits and deletion operations, file metadata, remote vault names and identifiers, device names and identifiers, cursor positions and selections in the active note, and sync exclusion settings. Your server processes this data in Cloudflare Workers and Durable Objects and stores files in your R2 bucket. Cursor information is used only for live display and is not stored in files, edit history, or R2. Durable Objects retain the Yjs state of deleted notes to recover edits made concurrently with deletion.
 
 Sign-in uses your server's Cloudflare Access OAuth endpoints and, in your browser, the identity provider configured in Access. OAuth registration, authorization, and token exchange send the information needed to authenticate. Your Access policy controls who can sync, and your server verifies the Access JWT's signature, issuer, audience, and expiration.
 

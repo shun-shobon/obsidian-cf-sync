@@ -32,6 +32,9 @@ export async function mergeText(
     }
 
     Y.applyUpdate(doc, toUint8Array(update));
+    if (doc.store.pendingStructs || doc.store.pendingDs) {
+      throw new ApplicationError("invalid-input", "Missing Yjs update dependencies");
+    }
     const plain = new TextEncoder().encode(doc.getText("content").toJSON());
 
     return { update: Y.encodeStateAsUpdate(doc), size: plain.length, digest: await digest(plain) };

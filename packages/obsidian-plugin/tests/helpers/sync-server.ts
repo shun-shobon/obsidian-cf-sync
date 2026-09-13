@@ -47,7 +47,29 @@ export class Server {
     download: async () => {
       throw Error("unused");
     },
-    connect: async () => ({ close() {} }),
+    connect: async (onMessage, onClose) => ({
+      close() {},
+      send: (message) => {
+        if (message.type !== "operation") {
+          return;
+        }
+        void this.api.operate(message.operation).then(
+          (result) => onMessage({ type: "operation-result", result }),
+          (error: unknown) => {
+            if (error instanceof ConnectionError) {
+              onClose();
+            } else {
+              onMessage({
+                type: "operation-error",
+                opId: message.operation.opId,
+                message: String(error),
+                retryable: false,
+              });
+            }
+          },
+        );
+      },
+    }),
   };
 
   private async operate(operation: Operation): Promise<OperationResult> {

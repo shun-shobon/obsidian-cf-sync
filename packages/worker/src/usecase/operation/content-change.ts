@@ -42,6 +42,10 @@ export async function applyContentChange(
     conflict ||= current.file.conflict;
   }
 
+  if (!current && operation.type === "edit" && operation.content.kind === "text") {
+    previous = await repository.deletedContent(operation.fileId);
+  }
+
   const write = await prepareContent(operation.content, previous, blobs);
   const file = {
     id: target.id,

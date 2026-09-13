@@ -74,7 +74,14 @@ it.each(cases)(
           result.conflictReason = conflictReason;
         }
         const api = { operate: vi.fn().mockResolvedValue(result) } as unknown as ApiPort;
-        await new SendPending(state, api, {} as Documents).run(() => true);
+        await new SendPending(
+          state,
+          api,
+          {} as Documents,
+          (work) => work(),
+          (operation) => api.operate(operation),
+          () => {},
+        ).run(() => true);
         expect(onConflict).toHaveBeenCalledWith(result.file, expected);
         expect((await store.load())?.pending).toEqual([]);
       } finally {

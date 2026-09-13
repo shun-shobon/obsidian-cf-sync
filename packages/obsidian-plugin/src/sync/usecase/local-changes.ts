@@ -187,16 +187,34 @@ export class LocalChanges {
   }
 
   private async queueContent(file: LocalFile, bytes: Uint8Array, doc?: Y.Doc): Promise<void> {
+    let fullUpdate: Uint8Array | undefined;
+    if (doc) {
+      fullUpdate = Y.encodeStateAsUpdate(doc);
+    }
     const hash = await digest(bytes);
-    if (file.digest === hash) {
+    let vector: Uint8Array | undefined;
+    let previous: Uint8Array | undefined;
+    if (fullUpdate && doc) {
+      vector = Y.encodeStateVectorFromUpdate(fullUpdate);
+      previous = this.documents.queuedVector(doc);
+    }
+    const hasNewStructs =
+      vector &&
+      previous &&
+      (vector.length !== previous.length ||
+        vector.some((value, index) => value !== previous[index]));
+    if (file.digest === hash && !hasNewStructs) {
       return;
     }
 
-    const { content, savedData } = this.prepareContent(file, bytes, hash, doc);
+    const { content, savedData } = this.prepareContent(file, bytes, hash, doc, fullUpdate);
     const operation = contentOperation(this.state.data, file, content);
     file.digest = hash;
     appendContent(this.state.data, operation);
     await this.state.store.save(this.state.data, savedData);
+    if (doc && fullUpdate) {
+      this.documents.markQueued(doc, fullUpdate);
+    }
     this.onQueued();
   }
 
@@ -204,14 +222,19 @@ export class LocalChanges {
     file: LocalFile,
     bytes: Uint8Array,
     hash: string,
-    doc?: Y.Doc,
+    doc: Y.Doc | undefined,
+    fullUpdate: Uint8Array | undefined,
   ): { content: Content; savedData: StoredData } {
-    if (doc) {
-      const update = Y.encodeStateAsUpdate(doc);
+    if (doc && fullUpdate) {
+      const update = fullUpdate;
+      let sendingUpdate = update;
+      if (file.revision > 0) {
+        sendingUpdate = Y.diffUpdate(update, this.documents.queuedVector(doc));
+      }
 
       return {
         savedData: { key: `doc:${file.id}`, value: update },
-        content: { kind: "text", update: fromUint8Array(update) },
+        content: { kind: "text", update: fromUint8Array(sendingUpdate) },
       };
     }
 

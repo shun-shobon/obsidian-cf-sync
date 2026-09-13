@@ -1,11 +1,12 @@
 import { EditorState, Transaction, Prec, type Extension } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
+import type { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
 const managers = new WeakMap<Y.Doc, Y.UndoManager>();
 
-export function collaborationExtension(doc: Y.Doc): Extension {
+export function collaborationExtension(doc: Y.Doc, awareness?: Awareness): Extension {
   let undoManager = managers.get(doc);
 
   if (!undoManager) {
@@ -16,7 +17,8 @@ export function collaborationExtension(doc: Y.Doc): Extension {
   }
 
   return [
-    yCollab(doc.getText("content"), null, { undoManager }),
+    yCollab(doc.getText("content"), awareness, { undoManager }),
+    EditorView.theme({ ".cm-ySelectionInfo": { opacity: "1" } }),
     EditorState.transactionExtender.of(() => ({ annotations: Transaction.addToHistory.of(false) })),
     Prec.highest(
       keymap.of(

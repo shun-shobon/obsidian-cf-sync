@@ -1,4 +1,6 @@
 import type { Content, Operation, OperationResult } from "@cf-sync/protocol";
+import { fromUint8Array, toUint8Array } from "js-base64";
+import * as Y from "yjs";
 
 import type { LocalFile, LocalState } from "../domain/sync-state";
 
@@ -20,7 +22,17 @@ export function appendContent(state: LocalState, operation: Operation): void {
     isTextEdit(operation) && isTextEdit(previous) && !state.attempted.includes(previous.opId);
 
   if (replacesUnsentText) {
-    previous.content = operation.content;
+    if (previous.content.kind === "text" && operation.content.kind === "text") {
+      previous.content = {
+        kind: "text",
+        update: fromUint8Array(
+          Y.mergeUpdates([
+            toUint8Array(previous.content.update),
+            toUint8Array(operation.content.update),
+          ]),
+        ),
+      };
+    }
 
     return;
   }
