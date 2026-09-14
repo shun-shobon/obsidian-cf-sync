@@ -30,6 +30,7 @@ export default defineConfig({
     neverBundle: ["obsidian", /^@codemirror\//, /^@lezer\//],
     alwaysBundle: [
       "@cf-sync/protocol",
+      /^@cf-sync\/sync-core(?:\/|$)/,
       "js-base64",
       "yjs",
       "y-codemirror.next",

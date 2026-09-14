@@ -9,15 +9,15 @@ import {
   type Operation,
   type ServerMessage,
 } from "@cf-sync/protocol";
+import { ConnectionError } from "@cf-sync/sync-core/domain/connection-error";
+import { DocumentNotFoundError } from "@cf-sync/sync-core/domain/document-not-found-error";
+import type { ApiPort, SyncSocket } from "@cf-sync/sync-core/sync/ports/api-port";
 import * as v from "valibot";
 
 import { ApiError } from "../../domain/api-error";
 import { AuthenticationError } from "../../domain/authentication-error";
-import { ConnectionError } from "../../domain/connection-error";
-import { DocumentNotFoundError } from "../../domain/document-not-found-error";
 import { urlSchema } from "../../domain/url-schema";
 import { t } from "../../i18n";
-import type { ApiPort, SyncSocket } from "../../sync/ports/api-port";
 import { OAuthClient } from "../auth/oauth-client";
 
 import type { HttpRequest, Transport } from "./transport";

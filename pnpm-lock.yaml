@@ -143,6 +143,9 @@ importers:
       '@cf-sync/protocol':
         specifier: workspace:*
         version: link:packages/protocol
+      '@cf-sync/sync-core':
+        specifier: workspace:*
+        version: link:packages/sync-core
       '@cloudflare/workers-types':
         specifier: 'catalog:'
         version: 5.20260908.1
@@ -197,6 +200,9 @@ importers:
       '@cf-sync/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@cf-sync/sync-core':
+        specifier: workspace:*
+        version: link:../sync-core
       auth-header:
         specifier: 1.0.0
         version: 1.0.0
@@ -262,6 +268,30 @@ importers:
       js-base64:
         specifier: 'catalog:'
         version: 3.9.3
+
+  packages/sync-core:
+    dependencies:
+      '@cf-sync/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      i18next:
+        specifier: 'catalog:'
+        version: 26.4.2(typescript@7.0.2)
+      js-base64:
+        specifier: 'catalog:'
+        version: 3.9.3
+      lib0:
+        specifier: 'catalog:'
+        version: 0.2.117
+      valibot:
+        specifier: 'catalog:'
+        version: 1.5.0(typescript@7.0.2)
+      y-protocols:
+        specifier: 1.0.7
+        version: 1.0.7(yjs@13.6.32)
+      yjs:
+        specifier: 'catalog:'
+        version: 13.6.32
 
   packages/worker:
     dependencies:

@@ -1,5 +1,6 @@
+import type { SyncStatus } from "@cf-sync/sync-core/sync/domain/sync-state";
+
 import { t } from "../i18n";
-import type { SyncStatus } from "../sync/domain/sync-state";
 
 export function statusText(status: SyncStatus): string {
   const labels: Record<SyncStatus["phase"], string> = {

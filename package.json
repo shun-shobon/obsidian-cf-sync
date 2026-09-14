@@ -20,6 +20,7 @@
   },
   "devDependencies": {
     "@cf-sync/protocol": "workspace:*",
+    "@cf-sync/sync-core": "workspace:*",
     "@cloudflare/workers-types": "catalog:",
     "@tsconfig/node-lts": "24.0.1",
     "@tsconfig/strictest": "2.0.8",

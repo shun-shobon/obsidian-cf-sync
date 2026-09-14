@@ -1,4 +1,6 @@
 import { pathSchema } from "@cf-sync/protocol";
+import type { SyncStatus } from "@cf-sync/sync-core/sync/domain/sync-state";
+import { SyncEngine } from "@cf-sync/sync-core/sync/usecase/sync-engine";
 import { Notice, type App } from "obsidian";
 import * as v from "valibot";
 
@@ -8,9 +10,7 @@ import { OAuthClient } from "../infra/auth/oauth-client";
 import { ApiClient } from "../infra/http/api-client";
 import { obsidianTransport } from "../infra/obsidian/http-transport";
 import { ObsidianVault } from "../infra/obsidian/vault-adapter";
-import type { SyncStatus } from "../sync/domain/sync-state";
 import { IndexedDbStore } from "../sync/infra/storage/indexed-db-store";
-import { SyncEngine } from "../sync/usecase/sync-engine";
 
 import { confirmInitial } from "./confirm-initial";
 import { loginInBrowser } from "./login-modal";

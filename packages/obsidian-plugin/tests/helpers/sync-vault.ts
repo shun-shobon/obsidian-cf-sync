@@ -1,4 +1,4 @@
-import type { VaultPort } from "../../src/sync/ports/vault-port";
+import type { VaultPort } from "@cf-sync/sync-core/sync/ports/vault-port";
 
 export class Vault implements VaultPort {
   files = new Map<string, Uint8Array>();

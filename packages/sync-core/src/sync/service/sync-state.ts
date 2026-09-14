@@ -1,4 +1,4 @@
-import type { FileRecord } from "@cf-sync/protocol";
+import { isExcluded, type FileRecord } from "@cf-sync/protocol";
 
 import { t } from "../../i18n";
 import type { LocalState, SyncStatus } from "../domain/sync-state";
@@ -28,6 +28,14 @@ export class SyncState {
     if (stored) {
       this.data = stored;
     }
+  }
+
+  hasPending(): boolean {
+    return this.data.pending.some((operation) => {
+      const local = this.data.files.find((file) => file.id === operation.fileId);
+
+      return !local || !isExcluded(local.path, this.data.exclusions);
+    });
   }
 
   emit(phase: SyncStatus["phase"], error?: unknown): void {

@@ -1,0 +1,12 @@
+export type { ApiPort, RestApiPort, SyncSocket } from "./sync/ports/api-port";
+export type { VaultPort } from "./sync/ports/vault-port";
+export type { SyncStore, StoredData } from "./sync/ports/sync-store";
+export type { LocalState, LocalFile, SyncStatus } from "./sync/domain/sync-state";
+export { ConnectionError } from "./domain/connection-error";
+export { DocumentNotFoundError } from "./domain/document-not-found-error";
+export { setSyncLanguage } from "./i18n";
+export { SyncOnce } from "./sync/usecase/sync-once";
+export { PlanSync } from "./sync/usecase/plan-sync";
+export type { SyncOnceOptions } from "./sync/usecase/sync-once-options";
+export type { SyncResult } from "./sync/domain/sync-result";
+export type { SyncPlan } from "./sync/domain/sync-plan";

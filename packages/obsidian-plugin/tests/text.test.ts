@@ -1,7 +1,6 @@
+import { replaceText } from "@cf-sync/sync-core/sync/service/text";
 import { expect, it } from "vitest";
 import * as Y from "yjs";
-
-import { replaceText } from "../src/sync/service/text";
 
 it.each([
   ["shared high surrogate", "😄", "😁"],

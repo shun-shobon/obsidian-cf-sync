@@ -4,7 +4,7 @@ import * as Y from "yjs";
 
 import { t } from "../../i18n";
 import type { LocalFile } from "../domain/sync-state";
-import type { ApiPort } from "../ports/api-port";
+import type { RestApiPort } from "../ports/api-port";
 import type { StoredData } from "../ports/sync-store";
 import type { VaultPort } from "../ports/vault-port";
 import type { Documents } from "../service/documents";
@@ -29,10 +29,21 @@ export class ReceiveFile {
   constructor(
     private readonly state: SyncState,
     private readonly vault: VaultPort,
-    private readonly api: ApiPort,
+    private readonly api: RestApiPort,
     private readonly documents: Documents,
     private readonly changes: LocalChanges,
   ) {}
+
+  async fetch(fileId: string) {
+    const document = await this.api.document(fileId);
+    let bytes: Uint8Array | undefined;
+
+    if (document.content.kind === "blob") {
+      bytes = await this.api.download(document.content.blob);
+    }
+
+    return { document, bytes };
+  }
 
   async run(
     remote: FileRecord,

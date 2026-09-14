@@ -2,7 +2,7 @@ import { isExcluded, type Operation, type OperationResult } from "@cf-sync/proto
 
 import { t } from "../../i18n";
 import type { LocalFile } from "../domain/sync-state";
-import type { ApiPort } from "../ports/api-port";
+import type { RestApiPort } from "../ports/api-port";
 import type { StoredData } from "../ports/sync-store";
 import type { Documents } from "../service/documents";
 import { rebasePending } from "../service/pending-operations";
@@ -15,7 +15,7 @@ export class SendPending {
 
   constructor(
     private readonly state: SyncState,
-    private readonly api: ApiPort,
+    private readonly api: RestApiPort,
     private readonly documents: Documents,
     private readonly serialize: <T>(work: () => Promise<T>) => Promise<T>,
     private readonly operate: (operation: Operation) => Promise<OperationResult>,
@@ -25,7 +25,12 @@ export class SendPending {
   async run(isActive: () => boolean): Promise<void> {
     while (isActive()) {
       const before = this.state.data.pending.map((op) => op.opId).join(",");
-      await Promise.all([this.runText(isActive), this.runOther(isActive)]);
+      const results = await Promise.allSettled([this.runText(isActive), this.runOther(isActive)]);
+      for (const result of results) {
+        if (result.status === "rejected") {
+          throw result.reason;
+        }
+      }
       const after = this.state.data.pending.map((op) => op.opId).join(",");
       if (before === after || !after) {
         return;
@@ -169,7 +174,8 @@ export class SendPending {
     operation: Operation,
     result: OperationResult,
   ): Promise<StoredData | undefined> {
-    if (!result.file) {
+    // A deletion conflict returns a separate preserved file, not a new identity for the deleted file.
+    if (!result.file || operation.type === "delete") {
       return undefined;
     }
 

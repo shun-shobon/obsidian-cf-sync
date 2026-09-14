@@ -1,8 +1,8 @@
 import type { Operation } from "@cf-sync/protocol";
+import type { LocalFile, LocalState } from "@cf-sync/sync-core/sync/domain/sync-state";
+import type { StoredData, SyncStore } from "@cf-sync/sync-core/sync/ports/sync-store";
 
 import { t } from "../../../i18n";
-import type { LocalFile, LocalState } from "../../domain/sync-state";
-import type { StoredData, SyncStore } from "../../ports/sync-store";
 
 interface PendingEntry {
   order: number;

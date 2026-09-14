@@ -346,7 +346,7 @@ export class SyncEngine {
     await this.reconcile.run(
       snapshot,
       (work) => this.enqueue(work),
-      (file) => this.fetchFile(file.id),
+      (file) => this.receiveFile.fetch(file.id),
       () => this.isCurrent(generation),
     );
     if (!this.isCurrent(generation)) {
@@ -360,10 +360,7 @@ export class SyncEngine {
   }
 
   private schedulePending(): void {
-    const hasPending = this.state.data.pending.some((operation) => {
-      const file = this.state.data.files.find((entry) => entry.id === operation.fileId);
-      return !file || !isExcluded(file.path, this.state.data.exclusions);
-    });
+    const hasPending = this.state.hasPending();
     if (hasPending || this.requestedReconcile > this.completedReconcile) {
       this.schedule();
     }
@@ -457,15 +454,6 @@ export class SyncEngine {
     }
   }
 
-  private async fetchFile(fileId: string) {
-    const document = await this.options.api.document(fileId);
-    let bytes: Uint8Array | undefined;
-    if (document.content.kind === "blob") {
-      bytes = await this.options.api.download(document.content.blob);
-    }
-    return { document, bytes };
-  }
-
   private async receiveChange(
     message: Extract<ServerMessage, { type: "changed" | "text" }>,
   ): Promise<void> {
@@ -475,14 +463,14 @@ export class SyncEngine {
     const generation = this.connection.generation;
     try {
       const local = this.state.data.files.find((file) => file.id === message.fileId);
-      let fetched: Awaited<ReturnType<SyncEngine["fetchFile"]>>;
+      let fetched: Awaited<ReturnType<ReceiveFile["fetch"]>>;
       if (message.type === "text" && local) {
         fetched = {
           document: { file: message.file, content: { kind: "text", update: message.update } },
           bytes: undefined,
         };
       } else {
-        fetched = await this.fetchFile(message.fileId);
+        fetched = await this.receiveFile.fetch(message.fileId);
       }
       await this.enqueue(async () => {
         if (!this.isCurrent(generation)) {

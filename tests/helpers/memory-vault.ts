@@ -1,4 +1,4 @@
-import type { VaultPort } from "../../packages/obsidian-plugin/src/sync/ports/vault-port";
+import type { VaultPort } from "@cf-sync/sync-core/sync/ports/vault-port";
 
 export function memoryVault(files: Map<string, Uint8Array>): VaultPort {
   return {

@@ -1,9 +1,8 @@
 import type { ClientMessage, ServerMessage } from "@cf-sync/protocol";
+import { Presence } from "@cf-sync/sync-core/sync/service/presence";
 import { fromUint8Array, toUint8Array } from "js-base64";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
-
-import { Presence } from "../src/sync/service/presence";
 
 type Message = Extract<ServerMessage, { type: "presence" }>;
 const docs: Y.Doc[] = [];
