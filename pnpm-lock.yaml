@@ -195,6 +195,24 @@ importers:
         specifier: 'catalog:'
         version: 13.6.32
 
+  packages/cli:
+    devDependencies:
+      '@cf-sync/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@cf-sync/sync-core':
+        specifier: workspace:*
+        version: link:../sync-core
+      citty:
+        specifier: 0.2.2
+        version: 0.2.2
+      tsdown:
+        specifier: 0.23.0
+        version: 0.23.0(tsx@4.23.13)(typescript@7.0.2)
+      valibot:
+        specifier: 'catalog:'
+        version: 1.5.0(typescript@7.0.2)
+
   packages/obsidian-plugin:
     dependencies:
       '@cf-sync/protocol':
@@ -1483,6 +1501,9 @@ packages:
     resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
     engines: {node: '>=18'}
 
+  citty@0.2.2:
+    resolution: {integrity: sha512-+6vJA3L98yv+IdfKGZHBNiGW5KHn22e/JwID0Strsz8h4S/csAu/OuICwxrg44k5MRiZHWIo8XXuJgQTriRP4w==}
+
   cookie@1.1.1:
     resolution: {integrity: sha512-ei8Aos7ja0weRpFzJnEA9UHJ/7XQmqglbRwnf2ATjcB9Wq874VKH9kfjjirM6UhU2/E5fFYadylyhFldcqSidQ==}
     engines: {node: '>=18'}
@@ -2748,6 +2769,8 @@ snapshots:
   cac@7.0.0: {}
 
   chai@6.2.2: {}
+
+  citty@0.2.2: {}
 
   cookie@1.1.1: {}
 

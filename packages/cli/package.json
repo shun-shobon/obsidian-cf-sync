@@ -1,0 +1,41 @@
+{
+  "name": "obsidian-cf-sync",
+  "version": "0.2.0",
+  "description": "Synchronize a local Vault with CF Sync without Obsidian",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shun-shobon/obsidian-cf-sync.git",
+    "directory": "packages/cli"
+  },
+  "bin": {
+    "obsidian-cf-sync": "dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "type": "module",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cf-sync/protocol": "workspace:*",
+    "@cf-sync/sync-core": "workspace:*",
+    "citty": "0.2.2",
+    "tsdown": "0.23.0",
+    "valibot": "catalog:"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
