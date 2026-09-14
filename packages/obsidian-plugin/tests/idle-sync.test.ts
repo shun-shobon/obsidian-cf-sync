@@ -1,12 +1,12 @@
 import "./helpers/browser-window";
 import "fake-indexeddb/auto";
 import type { ServerMessage } from "@cf-sync/protocol";
+import { DocumentNotFoundError } from "@cf-sync/sync-core/domain/document-not-found-error";
+import { SyncEngine } from "@cf-sync/sync-core/sync/usecase/sync-engine";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { AuthenticationError } from "../src/domain/authentication-error";
-import { DocumentNotFoundError } from "../src/domain/document-not-found-error";
 import { IndexedDbStore } from "../src/sync/infra/storage/indexed-db-store";
-import { SyncEngine } from "../src/sync/usecase/sync-engine";
 
 import { Server } from "./helpers/sync-server";
 import { Vault } from "./helpers/sync-vault";

@@ -5,9 +5,8 @@ import type {
   ServerMessage,
   Snapshot,
 } from "@cf-sync/protocol";
+import type { ApiPort } from "@cf-sync/sync-core/sync/ports/api-port";
 import type { Miniflare } from "miniflare";
-
-import type { ApiPort } from "../../packages/obsidian-plugin/src/sync/ports/api-port";
 
 import { vaultId } from "./runtime-api";
 

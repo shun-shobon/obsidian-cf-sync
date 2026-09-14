@@ -1,10 +1,9 @@
 import "./helpers/browser-window";
 import type { Operation, OperationResult, ServerMessage } from "@cf-sync/protocol";
+import { ConnectionError } from "@cf-sync/sync-core/domain/connection-error";
+import type { ApiPort } from "@cf-sync/sync-core/sync/ports/api-port";
+import { SyncConnection } from "@cf-sync/sync-core/sync/service/sync-connection";
 import { afterEach, expect, it, vi } from "vitest";
-
-import { ConnectionError } from "../src/domain/connection-error";
-import type { ApiPort } from "../src/sync/ports/api-port";
-import { SyncConnection } from "../src/sync/service/sync-connection";
 
 const connections: SyncConnection[] = [];
 afterEach(() => {

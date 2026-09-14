@@ -1,8 +1,8 @@
+import { ConnectionError } from "@cf-sync/sync-core/domain/connection-error";
 import * as v from "valibot";
 
 import type { AuthState } from "../../domain/auth-state";
 import { AuthenticationError } from "../../domain/authentication-error";
-import { ConnectionError } from "../../domain/connection-error";
 import { serverOrigin } from "../../domain/server-origin";
 import { t } from "../../i18n";
 import type { Transport } from "../http/transport";

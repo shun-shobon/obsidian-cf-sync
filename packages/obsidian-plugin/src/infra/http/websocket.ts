@@ -1,9 +1,9 @@
 import { serverMessageSchema, type ServerMessage } from "@cf-sync/protocol";
+import { ConnectionError } from "@cf-sync/sync-core/domain/connection-error";
+import type { SyncSocket } from "@cf-sync/sync-core/sync/ports/api-port";
 import * as v from "valibot";
 
-import { ConnectionError } from "../../domain/connection-error";
 import { t } from "../../i18n";
-import type { SyncSocket } from "../../sync/ports/api-port";
 
 interface ConnectionTicket {
   url: string;

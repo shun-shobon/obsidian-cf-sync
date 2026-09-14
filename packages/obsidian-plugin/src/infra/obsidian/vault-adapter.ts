@@ -1,8 +1,8 @@
 import { digest } from "@cf-sync/protocol";
+import type { VaultPort } from "@cf-sync/sync-core/sync/ports/vault-port";
 import { TFile, type FileManager, type Vault } from "obsidian";
 
 import { t } from "../../i18n";
-import type { VaultPort } from "../../sync/ports/vault-port";
 
 import { OwnFileEvents, type ExpectedEvent, type FileEvent } from "./own-file-events";
 

@@ -1,0 +1,24 @@
+{
+  "name": "@cf-sync/sync-core",
+  "version": "0.2.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cf-sync/protocol": "workspace:*",
+    "i18next": "catalog:",
+    "js-base64": "catalog:",
+    "lib0": "catalog:",
+    "valibot": "catalog:",
+    "y-protocols": "1.0.7",
+    "yjs": "catalog:"
+  }
+}

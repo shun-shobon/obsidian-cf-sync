@@ -93,4 +93,40 @@ describe("Access authentication", () => {
       ),
     ).rejects.toMatchObject({ kind: "unauthenticated" });
   });
+
+  describe("service token assertions", () => {
+    beforeEach(() => {
+      claims = {
+        ...claims,
+        sub: "",
+        common_name: "service-client.access",
+      };
+    });
+
+    it("accepts a signed assertion with an empty subject and no email", async () => {
+      await expect(authenticate(await request(claims), env)).resolves.toBeUndefined();
+    });
+
+    it.each(["iss", "aud", "exp", "sub"])("rejects a missing %s claim", async (claim) => {
+      delete claims[claim];
+      await expect(authenticate(await request(claims), env)).rejects.toMatchObject({
+        kind: "unauthenticated",
+      });
+    });
+
+    it.each([{ iss: "https://other.cloudflareaccess.com" }, { aud: "other-app" }, { exp: 1 }])(
+      "rejects invalid claims %j",
+      async (invalid) => {
+        await expect(
+          authenticate(await request({ ...claims, ...invalid }), env),
+        ).rejects.toMatchObject({ kind: "unauthenticated" });
+      },
+    );
+
+    it("rejects an assertion signed by a different key", async () => {
+      await expect(
+        authenticate(await request(claims, otherKeys.privateKey), env),
+      ).rejects.toMatchObject({ kind: "unauthenticated" });
+    });
+  });
 });

@@ -1,8 +1,9 @@
+import { enErrors, jaErrors } from "@cf-sync/sync-core/i18n/errors";
+import { setSyncLanguage } from "@cf-sync/sync-core/i18n/index";
+import { enSync, jaSync } from "@cf-sync/sync-core/i18n/sync";
 import { createInstance } from "i18next";
 
-import { enErrors, jaErrors } from "./errors";
 import type {} from "./i18next";
-import { enSync, jaSync } from "./sync";
 import { enUI, jaUI } from "./ui";
 
 export const resources = {
@@ -26,11 +27,12 @@ void i18n.init({
 export const t = i18n.getFixedT(null, "plugin");
 
 export function setLanguage(code: string): void {
-  let language = "en";
+  let language: "en" | "ja" = "en";
 
   if (code.toLowerCase().split("-")[0] === "ja") {
     language = "ja";
   }
 
   void i18n.changeLanguage(language);
+  setSyncLanguage(language);
 }

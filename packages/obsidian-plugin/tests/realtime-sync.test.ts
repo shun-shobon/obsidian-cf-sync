@@ -1,11 +1,11 @@
 import "./helpers/browser-window";
 import "fake-indexeddb/auto";
 import { digest, type Operation, type ServerMessage } from "@cf-sync/protocol";
+import type { ApiPort } from "@cf-sync/sync-core/sync/ports/api-port";
+import { SyncEngine } from "@cf-sync/sync-core/sync/usecase/sync-engine";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { IndexedDbStore } from "../src/sync/infra/storage/indexed-db-store";
-import type { ApiPort } from "../src/sync/ports/api-port";
-import { SyncEngine } from "../src/sync/usecase/sync-engine";
 
 import { Server } from "./helpers/sync-server";
 import { Vault } from "./helpers/sync-vault";

@@ -1,7 +1,7 @@
+import { SyncEngine } from "@cf-sync/sync-core/sync/usecase/sync-engine";
 import type { Miniflare } from "miniflare";
 
 import { IndexedDbStore } from "../../packages/obsidian-plugin/src/sync/infra/storage/indexed-db-store";
-import { SyncEngine } from "../../packages/obsidian-plugin/src/sync/usecase/sync-engine";
 
 import { memoryVault } from "./memory-vault";
 import { createRuntimeApi } from "./runtime-transport";

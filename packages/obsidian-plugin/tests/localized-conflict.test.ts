@@ -1,13 +1,13 @@
 import "fake-indexeddb/auto";
 import type { OperationResult } from "@cf-sync/protocol";
+import type { ApiPort } from "@cf-sync/sync-core/sync/ports/api-port";
+import type { Documents } from "@cf-sync/sync-core/sync/service/documents";
+import { SyncState } from "@cf-sync/sync-core/sync/service/sync-state";
+import { SendPending } from "@cf-sync/sync-core/sync/usecase/send-pending";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { setLanguage } from "../src/i18n";
 import { IndexedDbStore } from "../src/sync/infra/storage/indexed-db-store";
-import type { ApiPort } from "../src/sync/ports/api-port";
-import type { Documents } from "../src/sync/service/documents";
-import { SyncState } from "../src/sync/service/sync-state";
-import { SendPending } from "../src/sync/usecase/send-pending";
 
 const cases: [OperationResult["conflictReason"], string, string][] = [
   [
@@ -53,6 +53,16 @@ it.each(cases)(
           baseRevision: 1,
         };
         state.data.pending.push(operation);
+        state.data.files.push({
+          id: operation.fileId,
+          path: "note.md",
+          kind: "text",
+          digest: "",
+          diskDigest: "",
+          documentRevision: 1,
+          revision: 1,
+          pathRevision: 1,
+        });
         const result: OperationResult = {
           opId: operation.opId,
           revision: 2,
@@ -84,6 +94,8 @@ it.each(cases)(
         ).run(() => true);
         expect(onConflict).toHaveBeenCalledWith(result.file, expected);
         expect((await store.load())?.pending).toEqual([]);
+        expect(state.data.files[0]?.id).toBe(operation.fileId);
+        expect(state.data.files[0]?.path).toBe("note.md");
       } finally {
         store.close();
       }

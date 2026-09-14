@@ -1,9 +1,8 @@
 import { digest, type FileRecord, type Operation, type OperationResult } from "@cf-sync/protocol";
+import { ConnectionError } from "@cf-sync/sync-core/domain/connection-error";
+import type { ApiPort } from "@cf-sync/sync-core/sync/ports/api-port";
 import { toUint8Array, fromUint8Array } from "js-base64";
 import * as Y from "yjs";
-
-import { ConnectionError } from "../../src/domain/connection-error";
-import type { ApiPort } from "../../src/sync/ports/api-port";
 
 interface ServerDocument {
   doc: Y.Doc;

@@ -1,5 +1,5 @@
 {
-  "name": "obsidian-cf-sync",
+  "name": "obsidian-cf-sync-workspace",
   "version": "0.2.0",
   "private": true,
   "description": "Personal Obsidian sync with Cloudflare Workers, Durable Objects and R2",
@@ -8,6 +8,7 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r --if-present build",
+    "build:cli": "pnpm --filter obsidian-cf-sync build",
     "build:plugin": "pnpm --filter @cf-sync/obsidian-plugin build",
     "build:worker": "pnpm --filter @cf-sync/worker build",
     "deploy": "pnpm --filter @cf-sync/worker deploy",
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "@cf-sync/protocol": "workspace:*",
+    "@cf-sync/sync-core": "workspace:*",
     "@cloudflare/workers-types": "catalog:",
     "@tsconfig/node-lts": "24.0.1",
     "@tsconfig/strictest": "2.0.8",

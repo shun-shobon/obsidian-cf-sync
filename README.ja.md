@@ -57,9 +57,22 @@ Obsidianの**設定 → コミュニティプラグイン → 閲覧**から**CF
 
 1つのローカルVaultを1つのリモートVaultへ接続します。別のリモートVaultを使う場合は別のローカルVaultを用意します。
 
-## 0.2.0への更新
+## CLI
 
-0.2.0では同期操作とカーソル情報をWebSocketで送信するため、Workerも0.2.0のソースから再デプロイする必要があります。`packages/worker/wrangler.toml`の既存設定を維持し、`pnpm install --frozen-lockfile`と`pnpm deploy`を実行してから、各端末のプラグインを更新してください。0.2.0のプラグインは0.1.3のWorkerとは同期できません。
+ObsidianなしでVaultを同期できます（macOS・Linux、Node.js 24以上）。Accessで**Service Auth**を許可した[サービストークン](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/)を用意します。
+
+```sh
+npm install -g obsidian-cf-sync
+export CF_SYNC_SERVER_URL=https://sync.example.com
+export CF_ACCESS_CLIENT_ID='your-client-id'
+export CF_ACCESS_CLIENT_SECRET='your-client-secret'
+
+obsidian-cf-sync vault list
+obsidian-cf-sync init ./vault --vault REMOTE_VAULT_ID
+obsidian-cf-sync sync ./vault
+```
+
+その他の使い方は`obsidian-cf-sync --help`を参照してください。
 
 ## 利用要件と料金
 

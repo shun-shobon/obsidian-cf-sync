@@ -1,3 +1,4 @@
+import { Presence } from "@cf-sync/sync-core/sync/service/presence";
 import { history, undoDepth } from "@codemirror/commands";
 import { EditorState, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
@@ -10,7 +11,6 @@ import * as Y from "yjs";
 
 import { collaborationExtension } from "../src/presentation/editor/collaboration-extension";
 import { presenceExtension } from "../src/presentation/editor/presence-extension";
-import { Presence } from "../src/sync/service/presence";
 
 const clients: Presence[] = [];
 const views: EditorView[] = [];
