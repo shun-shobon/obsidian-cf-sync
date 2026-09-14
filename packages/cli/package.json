@@ -1,6 +1,6 @@
 {
   "name": "obsidian-cf-sync",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Synchronize a local Vault with CF Sync without Obsidian",
   "license": "MIT",
   "repository": {
