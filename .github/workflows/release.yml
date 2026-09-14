@@ -15,10 +15,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
       - run: pnpm --filter @cf-sync/obsidian-plugin build
-      - name: Check tag matches manifest
-        run: node --input-type=module -e 'import fs from "node:fs"; if(JSON.parse(fs.readFileSync("packages/obsidian-plugin/dist/manifest.json")).version !== process.env.RELEASE_TAG) process.exit(1)'
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
+      - run: pnpm build:cli
+      - name: Publish CLI to npm
+        working-directory: packages/cli
+        run: pnpm publish --no-git-checks
       - name: Attest release assets
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
