@@ -25,6 +25,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
+      - uses: ./.github/actions/setup
       - uses: shun-shobon/easy-release@6fb967fe0de66ae629160ba29b180e7a424f549d # v0.2.0
         with:
           mode: prepare
