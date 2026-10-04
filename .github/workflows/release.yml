@@ -1,11 +1,57 @@
 name: Release
 on:
-  push:
-    tags: ["[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: Version bump
+        required: true
+        type: choice
+        options: [patch, minor, major]
+  pull_request:
+    types: [closed]
 permissions:
   contents: read
+concurrency:
+  group: easy-release
+  cancel-in-progress: false
 jobs:
-  release:
+  prepare:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+      - uses: shun-shobon/easy-release@6fb967fe0de66ae629160ba29b180e7a424f549d # v0.2.0
+        with:
+          mode: prepare
+          release-type: ${{ inputs.release_type }}
+
+  draft:
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      ready: ${{ steps.draft.outputs.ready }}
+      tag: ${{ steps.draft.outputs.tag }}
+      commit: ${{ steps.draft.outputs.commit }}
+      release-id: ${{ steps.draft.outputs.release-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+      - uses: shun-shobon/easy-release@6fb967fe0de66ae629160ba29b180e7a424f549d # v0.2.0
+        id: draft
+        with:
+          mode: draft
+
+  assets:
+    needs: draft
+    if: needs.draft.outputs.ready == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -13,6 +59,8 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.draft.outputs.commit }}
       - uses: ./.github/actions/setup
       - run: pnpm --filter @cf-sync/obsidian-plugin build
       - run: pnpm build:cli
@@ -25,8 +73,26 @@ jobs:
           subject-path: |
             packages/obsidian-plugin/dist/main.js
             packages/obsidian-plugin/dist/manifest.json
-      - name: Create release
-        run: gh release create "$RELEASE_TAG" packages/obsidian-plugin/dist/main.js packages/obsidian-plugin/dist/manifest.json --verify-tag --generate-notes
+      - name: Upload release assets
+        run: gh release upload "$RELEASE_TAG" packages/obsidian-plugin/dist/main.js packages/obsidian-plugin/dist/manifest.json --clobber
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.draft.outputs.tag }}
+
+  publish:
+    needs: [draft, assets]
+    if: needs.draft.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.draft.outputs.commit }}
+      - uses: shun-shobon/easy-release@6fb967fe0de66ae629160ba29b180e7a424f549d # v0.2.0
+        with:
+          mode: publish
+          release-id: ${{ needs.draft.outputs.release-id }}
+          tag: ${{ needs.draft.outputs.tag }}
+          commit: ${{ needs.draft.outputs.commit }}
