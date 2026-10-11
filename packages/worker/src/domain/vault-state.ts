@@ -7,11 +7,17 @@ export interface VaultMeta {
 	vaultId: string;
 }
 
-export interface StoredFile {
+export interface StoredTextFile {
 	file: FileRecord;
-	blob?: BlobRef;
 	chunks: number;
 }
+
+export interface StoredBlobFile {
+	file: FileRecord;
+	blob: BlobRef;
+}
+
+export type StoredFile = StoredTextFile | StoredBlobFile;
 
 export interface FileWrite {
 	stored: StoredFile;

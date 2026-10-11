@@ -6,8 +6,8 @@ export class PlanningStore implements SyncStore {
 
 	constructor(private readonly source: SyncStore) {}
 
-	async load(): Promise<LocalState | undefined> {
-		return structuredClone(await this.source.load());
+	load(): Promise<LocalState | undefined> {
+		return this.source.load();
 	}
 
 	async save(_state: LocalState, data?: StoredData): Promise<void> {

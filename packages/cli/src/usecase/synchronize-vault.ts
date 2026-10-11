@@ -1,14 +1,14 @@
 import { realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
-import { PlanSync, SyncOnce } from "@cf-sync/sync-core";
+import { PlanSync, SyncOnce, VaultApi } from "@cf-sync/sync-core";
 import type { SyncPlan, SyncResult } from "@cf-sync/sync-core";
 
 import { normalizeServerUrl } from "../domain/connection";
 import { resolveCredentials } from "../infra/config/credentials";
 import { FileVault } from "../infra/fs/vault-adapter";
 import { metadataName, readBinding, validateMetadata } from "../infra/fs/vault-binding";
-import { RestApi } from "../infra/http/api-client";
+import { serverConnection } from "../infra/http/server-connection";
 import { SqliteStore } from "../infra/storage/sqlite-store";
 import { lockVault } from "../infra/storage/vault-lock";
 
@@ -29,15 +29,15 @@ export async function synchronizeVault(
 	const metadata = join(root, metadataName);
 
 	await validateMetadata(metadata);
-	const unlock = await lockVault(metadata);
+	const unlock = lockVault(metadata);
 
 	try {
 		const binding = await readBinding(metadata);
-		const origin = normalizeServerUrl(binding.serverUrl);
-		assertSameServer(origin, env["CF_SYNC_SERVER_URL"]);
+		assertSameServer(binding.serverUrl, env["CF_SYNC_SERVER_URL"]);
 
-		const credentials = await resolveCredentials(origin, env);
-		const api = new RestApi(origin, credentials, binding.deviceId, binding.vaultId);
+		const credentials = await resolveCredentials(binding.serverUrl, env);
+		const server = serverConnection(binding.serverUrl, credentials);
+		const api = new VaultApi(server, binding.deviceId, binding.vaultId);
 		const store = new SqliteStore(join(metadata, "state.sqlite"), options.dryRun);
 
 		try {

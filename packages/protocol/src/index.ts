@@ -1,5 +1,7 @@
 export { blobSchema, contentSchema, type BlobRef, type Content } from "./content";
 
+export { connectionTicketSchema, parseServerOrigin } from "./connection";
+
 export { digest } from "./digest";
 
 export {
@@ -27,4 +29,4 @@ export {
 	type OperationResult,
 } from "./operations";
 
-export { conflictPath, isExcluded, pathSchema } from "./paths";
+export { conflictPath, fileKind, isExcluded, pathSchema } from "./paths";

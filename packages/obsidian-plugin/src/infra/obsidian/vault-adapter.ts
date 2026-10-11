@@ -1,4 +1,4 @@
-import { digest } from "@cf-sync/protocol";
+import { digest, fileKind } from "@cf-sync/protocol";
 import type { VaultPort } from "@cf-sync/sync-core/sync/ports/vault-port";
 import { TFile } from "obsidian";
 import type { FileManager, Vault } from "obsidian";
@@ -77,7 +77,6 @@ export class ObsidianVault implements VaultPort {
 		expected: Uint8Array | undefined,
 		bytes: Uint8Array,
 	): Promise<boolean> {
-		await this.parents(path);
 		const file = this.vault.getAbstractFileByPath(path);
 
 		if (expected === undefined) {
@@ -85,6 +84,7 @@ export class ObsidianVault implements VaultPort {
 				return false;
 			}
 
+			await this.parents(path);
 			await this.events.run({ type: "create", path, digest: await digest(bytes) }, () =>
 				this.vault.createBinary(path, new Uint8Array(bytes).buffer),
 			);
@@ -98,7 +98,7 @@ export class ObsidianVault implements VaultPort {
 
 		const event: ExpectedEvent = { type: "modify", path, digest: await digest(bytes) };
 
-		if (path.toLowerCase().endsWith(".md")) {
+		if (fileKind(path) === "text") {
 			return await this.writeTextIfUnchanged(file, event, expected, bytes);
 		}
 

@@ -5,6 +5,8 @@ export type { LocalState, LocalFile, SyncStatus } from "./sync/domain/sync-state
 export { ConnectionError } from "./domain/connection-error";
 export { DocumentNotFoundError } from "./domain/document-not-found-error";
 export { setSyncLanguage } from "./i18n";
+export type { HttpRequest, HttpResponse, ServerConnection } from "./infra/http/http-client";
+export { AccountApi, VaultApi } from "./infra/http/server-api";
 export { SyncOnce } from "./sync/usecase/sync-once";
 export { PlanSync } from "./sync/usecase/plan-sync";
 export type { SyncOnceOptions } from "./sync/usecase/sync-once-options";

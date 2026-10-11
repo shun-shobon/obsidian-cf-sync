@@ -17,10 +17,6 @@ function isSupportedSegment(segment: string): boolean {
 }
 
 function isSupportedPath(path: string): boolean {
-	if (path.startsWith("/")) {
-		return false;
-	}
-
 	const hasInvalidCharacters = INVALID_CHARACTERS.test(path);
 	const hasControlCharacters = CONTROL_CHARACTERS.test(path);
 
@@ -33,8 +29,6 @@ function isSupportedPath(path: string): boolean {
 
 export const pathSchema = v.pipe(
 	v.string(),
-	v.minLength(1),
-	v.maxLength(1024),
 	v.maxBytes(MAX_PATH_BYTES),
 	v.check(isSupportedPath, "Unsupported vault path"),
 );
@@ -47,6 +41,14 @@ export function isExcluded(path: string, exclusions: readonly string[]): boolean
 	}
 
 	return exclusions.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+}
+
+export function fileKind(path: string): "text" | "blob" {
+	if (path.toLowerCase().endsWith(".md")) {
+		return "text";
+	}
+
+	return "blob";
 }
 
 export function conflictPath(path: string, id: string): string {

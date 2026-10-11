@@ -6,6 +6,7 @@ import { conflictPath, digest, isExcluded, operationSchema, pathSchema } from ".
 
 describe("portable paths and explicit exclusions", () => {
 	it.each([
+		"",
 		"/absolute.md",
 		"../secret",
 		"a/../b",

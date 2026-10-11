@@ -1,13 +1,16 @@
-import type { Content, Operation } from "@cf-sync/protocol";
+import type { Content, FileRecord, Operation } from "@cf-sync/protocol";
 
 import { ApplicationError } from "../../domain/errors";
 import { TEXT_CHUNK_SIZE } from "../../domain/vault-state";
 import type { FileWrite, OperationChanges, StoredFile, VaultMeta } from "../../domain/vault-state";
+import type { BlobStorage } from "../../infra/blob-storage";
+import type { VaultRepository } from "../../infra/vault-repository";
 import { allocateConflictPath, hasPathCollision } from "../../service/path-conflicts";
 import { mergeText } from "../../service/text-content";
-import type { VaultStore, BlobVerifier } from "../ports";
 
 type ContentOperation = Extract<Operation, { type: "create" | "edit" }>;
+
+type FileBase = Omit<FileRecord, "kind" | "digest" | "size">;
 
 interface ContentTarget {
 	id: string;
@@ -22,51 +25,37 @@ export async function applyContentChange(
 	files: StoredFile[],
 	meta: VaultMeta,
 	changes: OperationChanges,
-	repository: VaultStore,
-	blobs: BlobVerifier,
+	repository: VaultRepository,
+	blobs: BlobStorage,
 ): Promise<void> {
 	const target = resolveTarget(operation, current, files);
 	meta.revision++;
-	let previous: Content | undefined;
 	let pathRevision = meta.revision;
 	let conflict = target.conflict;
 
 	if (target.merge && current) {
-		previous = await repository.content(current);
 		pathRevision = current.file.pathRevision;
 		conflict ||= current.file.conflict;
 	}
 
-	if (!current && operation.type === "edit" && operation.content.kind === "text") {
-		previous = await repository.deletedContent(operation.fileId);
-	}
-
-	const write = await prepareContent(operation.content, previous, blobs);
-	const file = {
+	const previousText = await previousTextUpdate(operation, current, target, repository);
+	const base = {
 		id: target.id,
 		path: target.path,
-		kind: operation.content.kind,
 		revision: meta.revision,
 		pathRevision,
-		digest: write.digest,
-		size: write.size,
 		conflict,
 	};
+	const write = await prepareWrite(operation.content, previousText, blobs, base);
 
-	changes.result.file = file;
+	changes.result.file = write.stored.file;
 	changes.result.conflict = target.conflict;
 
 	if (target.conflict) {
 		changes.result.conflictReason = "content-preserved";
 	}
 
-	const fileWrite: FileWrite = { stored: { file, ...write.stored } };
-
-	if (write.update) {
-		fileWrite.update = write.update;
-	}
-
-	changes.writes.push(fileWrite);
+	changes.writes.push(write);
 	changes.dirty.add(target.path);
 }
 
@@ -111,31 +100,52 @@ function hasStaleBlobEdit(operation: ContentOperation, current: StoredFile | und
 	return operation.baseRevision !== current.file.revision;
 }
 
-async function prepareContent(
+async function previousTextUpdate(
+	operation: ContentOperation,
+	current: StoredFile | undefined,
+	target: ContentTarget,
+	repository: VaultRepository,
+): Promise<string | undefined> {
+	if (operation.content.kind !== "text") {
+		return undefined;
+	}
+
+	if (!current) {
+		if (operation.type !== "edit") {
+			return undefined;
+		}
+
+		return await repository.deletedTextUpdate(operation.fileId);
+	}
+
+	if (!target.merge || "blob" in current) {
+		return undefined;
+	}
+
+	return await repository.textUpdate(current);
+}
+
+async function prepareWrite(
 	content: Content,
-	previous: Content | undefined,
-	blobs: BlobVerifier,
-): Promise<{
-	stored: Omit<StoredFile, "file">;
-	update?: FileWrite["update"];
-	size: number;
-	digest: string;
-}> {
+	previousText: string | undefined,
+	blobs: BlobStorage,
+	base: FileBase,
+): Promise<FileWrite> {
 	if (content.kind === "blob") {
 		await blobs.validate(content.blob);
-
-		return {
-			stored: { chunks: 0, blob: content.blob },
-			size: content.blob.size,
+		const file = {
+			...base,
+			kind: "blob" as const,
 			digest: content.blob.digest,
+			size: content.blob.size,
 		};
+
+		return { stored: { file, blob: content.blob } };
 	}
 
-	if (previous && previous.kind !== "text") {
-		throw new Error("Kind mismatch");
-	}
+	const merged = await mergeText(content.update, previousText);
+	const file = { ...base, kind: "text" as const, digest: merged.digest, size: merged.size };
+	const chunks = Math.ceil(merged.update.length / TEXT_CHUNK_SIZE);
 
-	const merged = await mergeText(content.update, previous?.update);
-
-	return { stored: { chunks: Math.ceil(merged.update.length / TEXT_CHUNK_SIZE) }, ...merged };
+	return { stored: { file, chunks }, update: merged.update };
 }

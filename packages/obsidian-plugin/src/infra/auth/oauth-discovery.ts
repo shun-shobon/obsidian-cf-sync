@@ -40,14 +40,11 @@ function resourceMetadataUrl(response: Response): string {
 		throw new AuthenticationError(t(($) => $.errors.missingBearerMetadata));
 	}
 
-	const parameters = new Headers();
-	for (const [name, value] of Object.entries(challenge.params)) {
-		if (name.toLowerCase() === "resource_metadata") {
-			parameters.append(name, v.parse(v.string(), value));
-		}
-	}
+	const parameter = Object.entries(challenge.params).find(
+		([name]) => name.toLowerCase() === "resource_metadata",
+	);
 
-	return v.parse(httpsUrlSchema, parameters.get("resource_metadata"));
+	return v.parse(httpsUrlSchema, parameter?.[1]);
 }
 
 export async function discoverAuthorizationServer(origin: string, transport: Transport) {

@@ -3,7 +3,7 @@ import { PlanningStore } from "../infra/planning-store";
 import { PlanningVault } from "../infra/planning-vault";
 import { buildSyncPlan } from "../service/sync-plan";
 import type { SyncOnceOptions } from "./sync-once-options";
-import { SyncSession } from "./sync-session";
+import { SyncSession, batchHooks } from "./sync-session";
 
 export class PlanSync {
 	constructor(private readonly options: SyncOnceOptions) {}
@@ -11,7 +11,7 @@ export class PlanSync {
 	async run(): Promise<SyncPlan> {
 		const vault = new PlanningVault(this.options.vault);
 		const store = new PlanningStore(this.options.store);
-		const session = new SyncSession({ ...this.options, vault, store });
+		const session = new SyncSession({ ...this.options, vault, store }, batchHooks([]));
 
 		try {
 			const snapshot = await session.prepare();

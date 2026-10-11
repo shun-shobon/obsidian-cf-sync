@@ -1,32 +1,23 @@
 import { isExcluded } from "@cf-sync/protocol";
-import type { FileRecord, ServerMessage } from "@cf-sync/protocol";
+import type { ServerMessage } from "@cf-sync/protocol";
 import type * as Y from "yjs";
 
 import { ConnectionError } from "../../domain/connection-error";
 import { DocumentNotFoundError } from "../../domain/document-not-found-error";
-import { t } from "../../i18n";
 import type { LocalFile } from "../domain/sync-state";
-import { Documents } from "../service/documents";
+import type { Documents } from "../service/documents";
 import { Presence } from "../service/presence";
 import { SyncConnection } from "../service/sync-connection";
 import { SyncScheduler } from "../service/sync-scheduler";
-import { SyncState } from "../service/sync-state";
-import { LocalChanges } from "./local-changes";
-import { ReceiveFile } from "./receive-file";
-import { ReconcileVault } from "./reconcile-vault";
-import { RecoverIncoming } from "./recover-incoming";
+import type { SyncState } from "../service/sync-state";
+import type { FetchedFile } from "./receive-file";
 import { SendPending } from "./send-pending";
 import type { SyncOptions } from "./sync-options";
+import { SyncSession } from "./sync-session";
 
 export class SyncEngine {
-	private readonly state: SyncState;
-	private readonly documents: Documents;
-	private readonly changes: LocalChanges;
-	private readonly receiveFile: ReceiveFile;
-	private readonly reconcile: ReconcileVault;
-	private readonly recovery: RecoverIncoming;
+	private readonly session: SyncSession;
 	private readonly sendPending: SendPending;
-	private serial: Promise<unknown> = Promise.resolve();
 	private paused = false;
 	private disposed = false;
 	private readonly connection: SyncConnection;
@@ -50,11 +41,11 @@ export class SyncEngine {
 	});
 
 	constructor(private readonly options: SyncOptions) {
-		const { store, vault, api } = options;
+		const { api } = options;
 		this.connection = new SyncConnection(
 			api,
 			(message) => this.receive(message),
-			() => this.failed(new ConnectionError(t(($) => $.errors.websocketDisconnected))),
+			(error) => this.failed(error),
 		);
 		this.presence = new Presence({
 			deviceId: options.deviceId,
@@ -67,32 +58,20 @@ export class SyncEngine {
 				}
 			},
 		});
-		this.state = new SyncState(
-			store,
-			(status) => options.onStatus(status),
-			(file, message) => options.onConflict(file, message),
-		);
-		this.documents = new Documents(
-			store,
-			(file, doc) => this.editorChanged(file, doc),
-			(doc, fileId) => this.presence.remapDoc(doc, fileId),
-		);
-		this.changes = new LocalChanges(this.state, vault, this.documents, () => this.queued());
-		this.receiveFile = new ReceiveFile(this.state, vault, api, this.documents, this.changes);
-		this.reconcile = new ReconcileVault(
-			this.state,
-			vault,
-			this.documents,
-			this.changes,
-			this.receiveFile,
-			(paths) => options.confirmInitial(paths),
-		);
-		this.recovery = new RecoverIncoming(this.state, vault, this.documents, this.changes);
+		this.session = new SyncSession(options, {
+			onStatus: (status) => options.onStatus(status),
+			onConflict: (file, message) => options.onConflict(file, message),
+			onEdit: (file, doc) => this.editorChanged(file, doc),
+			onRemap: (doc, fileId) => this.presence.remapDoc(doc, fileId),
+			onQueued: () => this.queued(),
+			onQueueError: (error) => this.state.emit("error", error),
+			confirmInitial: (paths) => options.confirmInitial(paths),
+		});
 		this.sendPending = new SendPending(
 			this.state,
 			api,
 			this.documents,
-			(work) => this.enqueue(work),
+			(work) => this.session.enqueue(work),
 			(operation) => {
 				if (operation.type === "edit" && operation.content.kind === "text") {
 					return this.connection.operate(operation);
@@ -108,20 +87,19 @@ export class SyncEngine {
 		);
 	}
 
-	get conflicts(): readonly FileRecord[] {
-		return this.state.data.conflicts;
+	private get state(): SyncState {
+		return this.session.state;
 	}
 
-	get exclusions(): readonly string[] {
-		return this.state.data.exclusions;
+	private get documents(): Documents {
+		return this.session.documents;
 	}
 
 	async start(): Promise<void> {
-		await this.enqueue(async () => {
+		await this.session.enqueue(async () => {
 			this.state.emit("starting");
 			await this.state.load();
-			await this.recovery.run();
-			await this.changes.scan();
+			await this.session.recoverLocalChanges();
 		});
 		await this.syncNow();
 	}
@@ -151,13 +129,12 @@ export class SyncEngine {
 		this.ready = false;
 		this.connection.disconnect();
 		const generation = this.connection.generation;
-		await this.enqueue(async () => {
+		await this.session.enqueue(async () => {
 			if (!this.isCurrent(generation)) {
 				return;
 			}
 
-			await this.recovery.run();
-			await this.changes.scan();
+			await this.session.recoverLocalChanges();
 		});
 		await this.syncNow();
 	}
@@ -167,9 +144,9 @@ export class SyncEngine {
 		this.pause();
 		await this.synchronizing;
 		await Promise.all(this.incomingTasks);
-		await this.serial;
+		await this.session.idle();
 		this.presence.dispose();
-		this.documents.dispose();
+		this.session.dispose();
 		this.options.store.close();
 	}
 
@@ -183,7 +160,7 @@ export class SyncEngine {
 	}
 
 	async ensureDoc(path: string): Promise<Y.Doc | undefined> {
-		return await this.enqueue(async () => {
+		return await this.session.enqueue(async () => {
 			const file = this.state.data.files.find((candidate) => candidate.path === path);
 			if (file?.kind !== "text" || isExcluded(file.path, this.state.data.exclusions)) {
 				return undefined;
@@ -219,26 +196,26 @@ export class SyncEngine {
 	}
 
 	releaseDoc(doc: Y.Doc): void {
-		void this.enqueue(() => this.documents.release(doc)).catch(() => {});
+		void this.session.enqueue(() => this.documents.release(doc)).catch(() => {});
 	}
 
 	capture(path: string): Promise<void> {
-		return this.enqueue(async () => {
-			await this.changes.capture(path);
+		return this.session.enqueue(async () => {
+			await this.session.changes.capture(path);
 			this.schedule();
 		});
 	}
 
 	captureDelete(path: string): Promise<void> {
-		return this.enqueue(async () => {
-			await this.changes.delete(path);
+		return this.session.enqueue(async () => {
+			await this.session.changes.delete(path);
 			this.schedule();
 		});
 	}
 
 	captureRename(oldPath: string, path: string): Promise<void> {
-		return this.enqueue(async () => {
-			if (await this.changes.rename(oldPath, path)) {
+		return this.session.enqueue(async () => {
+			if (await this.session.changes.rename(oldPath, path)) {
 				this.schedule();
 			}
 		});
@@ -265,7 +242,7 @@ export class SyncEngine {
 		const generation = this.connection.generation;
 		this.state.emit("syncing");
 		try {
-			await this.enqueue(() => this.recovery.run());
+			await this.session.enqueue(() => this.session.recovery.run());
 			if (!this.isCurrent(generation)) {
 				return;
 			}
@@ -294,7 +271,7 @@ export class SyncEngine {
 			if (!this.isCurrent(generation)) {
 				return;
 			}
-			await this.enqueue(() => this.state.emitProgress());
+			await this.session.enqueue(() => this.state.emitProgress());
 			this.schedulePending();
 		} catch (error) {
 			if (this.isCurrent(generation)) {
@@ -310,11 +287,11 @@ export class SyncEngine {
 			return;
 		}
 
-		const initialized = await this.enqueue(async () => {
+		const initialized = await this.session.enqueue(async () => {
 			if (!this.isCurrent(generation)) {
 				return false;
 			}
-			const result = await this.reconcile.initialize(initialSnapshot);
+			const result = await this.session.reconcile.initialize(initialSnapshot);
 			for (const file of this.state.data.files) {
 				const doc = this.documents.get(file.id);
 				if (doc && isExcluded(file.path, this.state.data.exclusions)) {
@@ -343,12 +320,7 @@ export class SyncEngine {
 			return;
 		}
 
-		await this.reconcile.run(
-			snapshot,
-			(work) => this.enqueue(work),
-			(file) => this.receiveFile.fetch(file.id),
-			() => this.isCurrent(generation),
-		);
+		await this.session.reconcile.run(snapshot, () => this.isCurrent(generation));
 		if (!this.isCurrent(generation)) {
 			return;
 		}
@@ -395,13 +367,6 @@ export class SyncEngine {
 		return generation === this.connection.generation && active;
 	}
 
-	private enqueue<T>(work: () => T | Promise<T>): Promise<T> {
-		const result = this.serial.then(work);
-		this.serial = result.catch((error: unknown) => this.state.emit("error", error));
-
-		return result;
-	}
-
 	private schedule(delay = 50): void {
 		if (this.disposed || this.paused || this.stopped) {
 			return;
@@ -419,14 +384,16 @@ export class SyncEngine {
 	}
 
 	private editorChanged(file: LocalFile, doc: Y.Doc): void {
-		void this.enqueue(async () => {
-			if (this.disposed || isExcluded(file.path, this.state.data.exclusions)) {
-				return;
-			}
+		void this.session
+			.enqueue(async () => {
+				if (this.disposed || isExcluded(file.path, this.state.data.exclusions)) {
+					return;
+				}
 
-			await this.changes.editorChanged(file, doc);
-			this.schedule();
-		}).catch(() => {});
+				await this.session.changes.editorChanged(file, doc);
+				this.schedule();
+			})
+			.catch(() => {});
 	}
 
 	private receive(message: ServerMessage): void {
@@ -436,18 +403,18 @@ export class SyncEngine {
 			} catch (error) {
 				this.failed(error);
 			}
-		} else if (message.type === "error") {
-			this.failed(new Error(message.message));
 		} else if (message.type === "changed" || message.type === "text") {
 			const task = this.receiveChange(message);
 			this.incomingTasks.add(task);
 			void task.finally(() => this.incomingTasks.delete(task));
 		} else if (message.type === "r2") {
-			void this.enqueue(async () => {
-				this.state.data.r2Revision = Math.max(this.state.data.r2Revision, message.revision);
-				await this.state.persist();
-				this.state.emitProgress();
-			}).catch((error: unknown) => this.failed(error));
+			void this.session
+				.enqueue(async () => {
+					this.state.data.r2Revision = Math.max(this.state.data.r2Revision, message.revision);
+					await this.state.persist();
+					this.state.emitProgress();
+				})
+				.catch((error: unknown) => this.failed(error));
 		} else if (message.type === "settings") {
 			this.requestedReconcile += 1;
 			this.schedule(50);
@@ -463,16 +430,13 @@ export class SyncEngine {
 		const generation = this.connection.generation;
 		try {
 			const local = this.state.data.files.find((file) => file.id === message.fileId);
-			let fetched: Awaited<ReturnType<ReceiveFile["fetch"]>>;
+			let fetched: FetchedFile;
 			if (message.type === "text" && local) {
-				fetched = {
-					document: { file: message.file, content: { kind: "text", update: message.update } },
-					bytes: undefined,
-				};
+				fetched = { file: message.file, content: { kind: "text", update: message.update } };
 			} else {
-				fetched = await this.receiveFile.fetch(message.fileId);
+				fetched = await this.session.receive.fetch(message.fileId);
 			}
-			await this.enqueue(async () => {
+			await this.session.enqueue(async () => {
 				if (!this.isCurrent(generation)) {
 					return;
 				}
@@ -487,13 +451,8 @@ export class SyncEngine {
 					this.schedule();
 					return;
 				}
-				if (!isExcluded(fetched.document.file.path, this.state.data.exclusions)) {
-					const applied = await this.receiveFile.run(
-						fetched.document.file,
-						fetched.document,
-						undefined,
-						fetched.bytes,
-					);
+				if (!isExcluded(fetched.file.path, this.state.data.exclusions)) {
+					const applied = await this.session.receive.run(fetched);
 					if (!applied) {
 						this.requestedReconcile += 1;
 					}

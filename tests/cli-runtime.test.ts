@@ -2,15 +2,15 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { PlanSync, SyncOnce } from "@cf-sync/sync-core";
+import { ConnectionError, PlanSync, SyncOnce, VaultApi } from "@cf-sync/sync-core";
 import type { SyncResult } from "@cf-sync/sync-core";
 import { build } from "esbuild";
 import { Miniflare } from "miniflare";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { FileVault } from "../packages/cli/src/infra/fs/vault-adapter";
 import { ensureMetadataDirectory } from "../packages/cli/src/infra/fs/vault-binding";
-import { RestApi } from "../packages/cli/src/infra/http/api-client";
+import { serverConnection } from "../packages/cli/src/infra/http/server-connection";
 import { SqliteStore } from "../packages/cli/src/infra/storage/sqlite-store";
 import { syncExitCode } from "../packages/cli/src/presentation/output";
 
@@ -30,6 +30,10 @@ beforeAll(async () => {
 		external: ["cloudflare:workers"],
 	});
 	script = built.outputFiles[0]!.text;
+});
+
+afterEach(() => {
+	vi.unstubAllGlobals();
 });
 
 afterAll(async () => {
@@ -75,17 +79,19 @@ async function start() {
 			headers: Object.fromEntries(response.headers),
 		});
 	};
+	vi.stubGlobal("fetch", fetcher);
 	return async () => {
 		const root = await mkdtemp(join(tmpdir(), "cf-sync-cli-"));
 		folders.push(root);
 		const metadata = await ensureMetadataDirectory(root);
 		const vault = new FileVault(root);
-		const api = new RestApi(
-			"https://test",
-			{ clientId: "cli-client.access", clientSecret: "test-secret" },
+		const api = new VaultApi(
+			serverConnection("https://test", {
+				clientId: "cli-client.access",
+				clientSecret: "test-secret",
+			}),
 			crypto.randomUUID(),
 			vaultId,
-			fetcher,
 		);
 		const run = async (dryRun = false) => {
 			const store = new SqliteStore(join(metadata, "state.sqlite"));
@@ -158,7 +164,7 @@ describe("CLI filesystem and SQLite against the real Worker", () => {
 		const local = await client();
 		await local.vault.write("note.md", encode("survives interruption"));
 		local.loseNextAcknowledgment();
-		await expect(local.run()).rejects.toThrow("Connection lost");
+		await expect(local.run()).rejects.toBeInstanceOf(ConnectionError);
 		const accepted = await local.api.snapshot();
 		expect(accepted.files).toHaveLength(1);
 		await expect(local.run()).resolves.toMatchObject({ pending: 0, revision: accepted.revision });

@@ -3,7 +3,6 @@ import * as v from "valibot";
 
 import type { AuthState } from "../../domain/auth-state";
 import { AuthenticationError } from "../../domain/authentication-error";
-import { serverOrigin } from "../../domain/server-origin";
 import { t } from "../../i18n";
 import type { Transport } from "../http/transport";
 import { registerClient, tokenResponseSchema } from "./oauth-provider";
@@ -12,16 +11,13 @@ import { challenge, random } from "./pkce";
 export class OAuthClient {
 	private refreshing?: Promise<string>;
 	private generation = 0;
-	readonly origin: string;
 
 	constructor(
-		origin: string,
+		readonly origin: string,
 		readonly state: AuthState,
 		private readonly transport: Transport,
 		private readonly save: () => Promise<void>,
-	) {
-		this.origin = serverOrigin(origin);
-	}
+	) {}
 
 	async begin(): Promise<string> {
 		this.generation++;
@@ -48,7 +44,7 @@ export class OAuthClient {
 		const pending = this.state.pending;
 		const { state, code, error } = params;
 
-		if (!pending || state === undefined || state === "") {
+		if (!pending) {
 			throw new AuthenticationError(t(($) => $.errors.loginExpired));
 		}
 
@@ -104,14 +100,15 @@ export class OAuthClient {
 		await this.save();
 	}
 
-	private async requestToken(parameters: Record<string, string>) {
+	private async exchange(parameters: Record<string, string>): Promise<string> {
 		const registration = this.state.registration;
 
 		if (!registration) {
 			throw new AuthenticationError(t(($) => $.errors.startLogin));
 		}
 
-		return await this.transport({
+		const generation = this.generation;
+		const response = await this.transport({
 			url: registration.metadata.token_endpoint,
 			method: "POST",
 			headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -120,16 +117,7 @@ export class OAuthClient {
 				client_id: registration.clientId,
 				resource: registration.resource,
 			}).toString(),
-		});
-	}
-
-	private async exchange(parameters: Record<string, string>): Promise<string> {
-		const generation = this.generation;
-		const response = await this.requestToken(parameters).catch((cause: unknown) => {
-			if (cause instanceof AuthenticationError) {
-				throw cause;
-			}
-
+		}).catch((cause: unknown) => {
 			throw new ConnectionError(
 				t(($) => $.errors.authUnavailable),
 				{ cause },
@@ -152,12 +140,8 @@ export class OAuthClient {
 		const result = v.parse(tokenResponseSchema, JSON.parse(response.text));
 		const refreshToken = result.refresh_token ?? this.state.tokens?.refreshToken;
 
-		if (refreshToken === undefined || refreshToken === "") {
+		if (refreshToken === undefined) {
 			throw new AuthenticationError(t(($) => $.errors.missingRefreshToken));
-		}
-
-		if (generation !== this.generation) {
-			throw new AuthenticationError(t(($) => $.errors.loginChanged));
 		}
 
 		this.state.tokens = {

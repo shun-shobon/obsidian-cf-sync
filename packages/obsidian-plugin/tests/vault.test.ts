@@ -155,6 +155,14 @@ describe("Obsidian Vault operation events", () => {
 		await f.flush();
 		expect(f.forwarded).toEqual([]);
 	});
+	it("does not create parent folders when a conditional write is skipped", async () => {
+		const f = fixture(false);
+
+		expect(await f.adapter.writeIfUnchanged("folder/note.md", encode("old"), encode("new"))).toBe(
+			false,
+		);
+		expect(f.folders).toEqual([]);
+	});
 	it("matches a delayed own rename by file identity even after another rename", async () => {
 		const f = fixture(true);
 		await f.adapter.write("a.md", encode("x"));

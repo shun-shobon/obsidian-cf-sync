@@ -19,7 +19,7 @@ export class SyncConnection {
 	constructor(
 		private readonly api: ApiPort,
 		private readonly onMessage: (message: ServerMessage) => void,
-		private readonly onClose: () => void,
+		private readonly onClose: (error: Error) => void,
 	) {}
 
 	get connected(): boolean {
@@ -99,10 +99,10 @@ export class SyncConnection {
 				}
 				this.onMessage(message);
 			},
-			() => {
+			(error) => {
 				connectState.closed = true;
 				if (generation === this.generation) {
-					this.onClose();
+					this.onClose(error);
 				}
 			},
 		);

@@ -6,22 +6,16 @@ import * as v from "valibot";
 
 import { t } from "../../i18n";
 
-interface ConnectionTicket {
-	url: string;
-	expiresAt: number;
-}
-
 export async function connectSocket(
-	ticket: ConnectionTicket,
+	ticketUrl: string,
 	origin: string,
 	onMessage: (message: ServerMessage) => void,
-	onClose: () => void,
+	onClose: (error: Error) => void,
 ): Promise<SyncSocket> {
-	const url = new URL(ticket.url);
+	const url = new URL(ticketUrl);
 	const isTrustedUrl = url.protocol === "wss:" && url.host === new URL(origin).host;
-	const isExpired = ticket.expiresAt <= Date.now();
 
-	if (!isTrustedUrl || isExpired) {
+	if (!isTrustedUrl) {
 		throw new Error(t(($) => $.errors.invalidConnectionUrl));
 	}
 
@@ -30,20 +24,9 @@ export async function connectSocket(
 	await waitUntilOpen(socket);
 
 	const closeListener = new AbortController();
-	socket.addEventListener(
-		"close",
-		(event) => {
-			if (event.code === 1008 || event.code === 1009) {
-				onMessage({
-					type: "error",
-					message: t(($) => $.errors.websocketRejected, { reason: event.reason }),
-				});
-				return;
-			}
-			onClose();
-		},
-		{ signal: closeListener.signal },
-	);
+	socket.addEventListener("close", (event) => onClose(closeError(event)), {
+		signal: closeListener.signal,
+	});
 
 	return {
 		send: (message) => {
@@ -57,6 +40,16 @@ export async function connectSocket(
 			socket.close();
 		},
 	};
+}
+
+function closeError(event: CloseEvent): Error {
+	const isRejected = event.code === 1008 || event.code === 1009;
+
+	if (isRejected) {
+		return new Error(t(($) => $.errors.websocketRejected, { reason: event.reason }));
+	}
+
+	return new ConnectionError(t(($) => $.errors.websocketDisconnected));
 }
 
 function receiveMessages(socket: WebSocket, onMessage: (message: ServerMessage) => void) {

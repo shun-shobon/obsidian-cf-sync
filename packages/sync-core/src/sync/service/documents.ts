@@ -1,6 +1,7 @@
 import * as Y from "yjs";
 
 import { t } from "../../i18n";
+import { documentKey } from "../domain/storage-keys";
 import type { LocalFile } from "../domain/sync-state";
 import type { StoredData, SyncStore } from "../ports/sync-store";
 
@@ -26,7 +27,7 @@ export class Documents {
 		}
 
 		const doc = new Y.Doc();
-		const stored = await this.store.get(`doc:${file.id}`);
+		const stored = await this.store.get(documentKey(file.id));
 		if (stored) {
 			Y.applyUpdate(doc, stored, "remote");
 		}
@@ -44,11 +45,7 @@ export class Documents {
 	}
 
 	queuedVector(doc: Y.Doc): Uint8Array {
-		const vector = this.queuedVectors.get(doc);
-		if (!vector) {
-			throw new Error("Document is not registered");
-		}
-		return vector;
+		return this.queuedVectors.get(doc)!;
 	}
 
 	markQueued(doc: Y.Doc, update: Uint8Array): void {
@@ -96,19 +93,19 @@ export class Documents {
 			this.docs.set(file.id, doc);
 			this.onRemap(doc, file.id);
 
-			return { key: `doc:${file.id}`, value: Y.encodeStateAsUpdate(doc) };
+			return { key: documentKey(file.id), value: Y.encodeStateAsUpdate(doc) };
 		}
 
 		if (file.kind !== "text") {
 			return undefined;
 		}
 
-		const stored = await this.store.get(`doc:${oldId}`);
+		const stored = await this.store.get(documentKey(oldId));
 		if (!stored) {
 			throw new Error(t(($) => $.errors.missingCrdt));
 		}
 
-		return { key: `doc:${file.id}`, value: stored };
+		return { key: documentKey(file.id), value: stored };
 	}
 
 	dispose(): void {

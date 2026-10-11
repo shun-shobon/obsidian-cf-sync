@@ -15,7 +15,7 @@ export function needsReceive(state: LocalState, snapshot: Snapshot): boolean {
 	});
 }
 
-function hasReceived(local: LocalFile | undefined, remote: FileRecord): boolean {
+export function hasReceived(local: LocalFile | undefined, remote: FileRecord): boolean {
 	if (!local) {
 		return false;
 	}
@@ -25,7 +25,22 @@ function hasReceived(local: LocalFile | undefined, remote: FileRecord): boolean 
 	}
 
 	const sameFile = local.path === remote.path && local.digest === remote.digest;
+	// Attachments are identified by digest. Uploads from this device never set documentRevision.
 	const needsTextUpdate = remote.kind === "text" && local.documentRevision < remote.revision;
 
 	return sameFile && !needsTextUpdate;
+}
+
+/** Advances the base revisions of an already received file without fetching it again. */
+export function adoptReceived(local: LocalFile | undefined, remote: FileRecord): boolean {
+	if (!local || !hasReceived(local, remote)) {
+		return false;
+	}
+
+	if (remote.revision > local.revision) {
+		local.revision = remote.revision;
+		local.pathRevision = remote.pathRevision;
+	}
+
+	return true;
 }

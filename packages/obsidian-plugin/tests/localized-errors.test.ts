@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ApiError } from "../src/domain/api-error";
 import { serverOrigin } from "../src/domain/server-origin";
 import { setLanguage } from "../src/i18n";
 import { OAuthClient } from "../src/infra/auth/oauth-client";
+import { SyncApi, serverConnection } from "../src/infra/http/api-client";
 
 afterEach(() => setLanguage("en"));
 
@@ -13,12 +13,31 @@ describe("localized errors", () => {
 		["ja-JP", "同期 API エラー (503)"],
 		["en", "Sync API error (503)"],
 		["fr", "Sync API error (503)"],
-	])("selects the language for %s without changing the HTTP status", (locale, expected) => {
+	])("selects the language of sync API errors for %s", async (locale, expected) => {
 		setLanguage(locale);
-		const error = new ApiError(503);
+		const auth = new OAuthClient(
+			"https://sync.test",
+			{
+				tokens: {
+					accessToken: "access",
+					refreshToken: "refresh",
+					expiresAt: Date.now() + 3_600_000,
+				},
+			},
+			async () => {
+				throw new Error("Unexpected token request");
+			},
+			async () => {},
+		);
+		const transport = async () => ({
+			status: 503,
+			headers: {},
+			text: "",
+			bytes: new ArrayBuffer(0),
+		});
+		const api = new SyncApi(serverConnection(auth, transport), "device", "vault");
 
-		expect(error.message).toBe(expected);
-		expect(error.status).toBe(503);
+		await expect(api.snapshot()).rejects.toThrow(expected);
 	});
 
 	it.each([

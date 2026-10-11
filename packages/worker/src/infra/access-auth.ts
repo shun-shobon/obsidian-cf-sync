@@ -3,7 +3,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import { ApplicationError } from "../domain/errors";
 import type { Env } from "./env";
 
-const keySets = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
+let keys: ReturnType<typeof createRemoteJWKSet> | undefined;
 
 export async function authenticate(request: Request, env: Env): Promise<void> {
 	if (!env.ACCESS_TEAM_DOMAIN || !env.ACCESS_AUD) {
@@ -17,12 +17,7 @@ export async function authenticate(request: Request, env: Env): Promise<void> {
 	}
 
 	const issuer = `https://${env.ACCESS_TEAM_DOMAIN}`;
-	let keys = keySets.get(issuer);
-
-	if (!keys) {
-		keys = createRemoteJWKSet(new URL(`${issuer}/cdn-cgi/access/certs`));
-		keySets.set(issuer, keys);
-	}
+	keys ??= createRemoteJWKSet(new URL(`${issuer}/cdn-cgi/access/certs`));
 
 	try {
 		await jwtVerify(assertion, keys, {

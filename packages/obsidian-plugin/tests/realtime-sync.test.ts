@@ -6,7 +6,7 @@ import type { ApiPort } from "@cf-sync/sync-core/sync/ports/api-port";
 import { SyncEngine } from "@cf-sync/sync-core/sync/usecase/sync-engine";
 import { afterEach, expect, it, vi } from "vitest";
 
-import { IndexedDbStore } from "../src/sync/infra/storage/indexed-db-store";
+import { IndexedDbStore } from "../src/infra/storage/indexed-db-store";
 import { Server } from "./helpers/sync-server";
 import { Vault } from "./helpers/sync-vault";
 

@@ -1,12 +1,13 @@
 import "./helpers/browser-window";
 import "fake-indexeddb/auto";
 import type { ServerMessage } from "@cf-sync/protocol";
+import { ConnectionError } from "@cf-sync/sync-core/domain/connection-error";
 import { DocumentNotFoundError } from "@cf-sync/sync-core/domain/document-not-found-error";
 import { SyncEngine } from "@cf-sync/sync-core/sync/usecase/sync-engine";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { AuthenticationError } from "../src/domain/authentication-error";
-import { IndexedDbStore } from "../src/sync/infra/storage/indexed-db-store";
+import { IndexedDbStore } from "../src/infra/storage/indexed-db-store";
 import { Server } from "./helpers/sync-server";
 import { Vault } from "./helpers/sync-vault";
 
@@ -25,7 +26,7 @@ function setup() {
 	const vault = new Vault();
 	const sockets: {
 		message: (message: ServerMessage) => void;
-		disconnect: () => void;
+		disconnect: (error: Error) => void;
 		close: ReturnType<typeof vi.fn>;
 	}[] = [];
 	const openSocket = server.api.connect.bind(server.api);
@@ -86,7 +87,7 @@ it("backs off after failures and stays quiet once reconnected", async () => {
 	const { engine, server, sockets, connect } = setup();
 	await engine.start();
 	server.offline = true;
-	sockets[0]!.disconnect();
+	sockets[0]!.disconnect(new ConnectionError("lost"));
 	await vi.advanceTimersByTimeAsync(1000);
 	await settled(engine);
 	expect(connect).toHaveBeenCalledTimes(2);
@@ -112,7 +113,7 @@ it("rescans missed local changes and replaces a stale connection on refresh", as
 	expect(sockets[0]!.close).toHaveBeenCalledTimes(1);
 	expect(connect).toHaveBeenCalledTimes(2);
 	expect([...server.docs.values()][0]!.doc.getText("content").toString()).toBe("offline edit");
-	sockets[0]!.disconnect();
+	sockets[0]!.disconnect(new ConnectionError("lost"));
 	await vi.advanceTimersByTimeAsync(60_000);
 	expect(connect).toHaveBeenCalledTimes(2);
 });
@@ -128,6 +129,15 @@ it("retains notifications arriving during the initial snapshot", async () => {
 	await vi.advanceTimersByTimeAsync(250);
 	await settled(engine);
 	expect(snapshot).toHaveBeenCalledTimes(4);
+});
+
+it("stops retrying when the server rejects the WebSocket", async () => {
+	const { engine, sockets, connect } = setup();
+	await engine.start();
+	sockets[0]!.disconnect(new Error("rejected"));
+	await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+	expect(connect).toHaveBeenCalledTimes(1);
+	expect(vi.getTimerCount()).toBe(0);
 });
 
 it("stops retrying when authentication is rejected", async () => {

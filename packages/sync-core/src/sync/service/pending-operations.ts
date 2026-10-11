@@ -1,4 +1,4 @@
-import type { Content, Operation, OperationResult } from "@cf-sync/protocol";
+import type { Content, FileRecord, Operation, OperationResult } from "@cf-sync/protocol";
 import { fromUint8Array, toUint8Array } from "js-base64";
 import * as Y from "yjs";
 
@@ -73,11 +73,8 @@ export function rebasePending(
 	local: LocalFile,
 	operation: Operation,
 	result: OperationResult,
+	file: FileRecord,
 ): void {
-	if (!result.file) {
-		return;
-	}
-
 	const changesPath = operation.type === "move" || operation.type === "create";
 	const acceptsLocalPath = changesPath && !result.conflict;
 
@@ -93,7 +90,7 @@ export function rebasePending(
 				operation,
 			);
 			if (followsOwnEdit) {
-				entry.baseRevision = result.file.revision;
+				entry.baseRevision = file.revision;
 			}
 		}
 
@@ -107,7 +104,7 @@ export function rebasePending(
 			operation,
 		);
 		if (followsOwnMove) {
-			entry.basePathRevision = result.file.pathRevision;
+			entry.basePathRevision = file.pathRevision;
 		}
 	}
 }

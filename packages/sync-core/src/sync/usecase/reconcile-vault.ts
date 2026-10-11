@@ -1,9 +1,11 @@
 import { digest, isExcluded } from "@cf-sync/protocol";
-import type { DocumentResponse, FileRecord, Snapshot } from "@cf-sync/protocol";
+import type { FileRecord, Snapshot } from "@cf-sync/protocol";
 
+import { documentKey } from "../domain/storage-keys";
 import type { LocalFile } from "../domain/sync-state";
 import type { VaultPort } from "../ports/vault-port";
 import type { Documents } from "../service/documents";
+import { adoptReceived } from "../service/snapshot-state";
 import type { SyncState } from "../service/sync-state";
 import type { LocalChanges } from "./local-changes";
 import type { ReceiveFile } from "./receive-file";
@@ -15,6 +17,7 @@ export class ReconcileVault {
 		private readonly documents: Documents,
 		private readonly changes: LocalChanges,
 		private readonly receive: ReceiveFile,
+		private readonly serialize: <T>(work: () => T | Promise<T>) => Promise<T>,
 		private readonly confirmInitial: (paths: string[]) => Promise<boolean>,
 	) {}
 
@@ -47,7 +50,7 @@ export class ReconcileVault {
 			this.state.data.pending = this.state.data.pending.filter((op) => op.fileId !== local.id);
 			this.state.data.files = this.state.data.files.filter((file) => file.id !== local.id);
 			this.documents.remove(local.id);
-			await this.receive.run(remote);
+			await this.receive.run(await this.receive.fetch(remote.id));
 		}
 
 		this.state.data.initialized = true;
@@ -56,62 +59,73 @@ export class ReconcileVault {
 		return true;
 	}
 
-	async run(
-		snapshot: Snapshot,
-		serialize: <T>(work: () => T | Promise<T>) => Promise<T>,
-		fetchFile: (
-			file: FileRecord,
-		) => Promise<{ document: DocumentResponse; bytes: Uint8Array | undefined }>,
-		isActive: () => boolean,
-	): Promise<void> {
+	async run(snapshot: Snapshot, isActive: () => boolean): Promise<void> {
+		await this.serialize(() => {
+			this.state.data.exclusions = snapshot.exclusions;
+		});
+
 		for (const remote of snapshot.files) {
 			if (!isActive()) {
 				return;
 			}
-			const needed = await serialize(() => {
-				const local = this.state.data.files.find((file) => file.id === remote.id);
-				return (
-					!isExcluded(remote.path, snapshot.exclusions) &&
-					!this.state.data.pending.some((op) => op.fileId === remote.id) &&
-					(!local ||
-						local.documentRevision < remote.revision ||
-						local.path !== remote.path ||
-						local.digest !== remote.digest)
-				);
-			});
+
+			const needed = await this.serialize(() => this.needsFetch(remote, snapshot));
 			if (!needed) {
 				continue;
 			}
+
 			// Fetch attachments outside the state queue so active editors keep working.
-			const fetched = await fetchFile(remote);
-			await serialize(async () => {
-				if (!isActive() || this.state.data.pending.some((op) => op.fileId === remote.id)) {
+			const fetched = await this.receive.fetch(remote.id);
+			await this.serialize(async () => {
+				if (!isActive() || this.hasPending(remote.id)) {
 					return;
 				}
-				await this.receive.run(fetched.document.file, fetched.document, undefined, fetched.bytes);
+
+				await this.receive.run(fetched);
 			});
 		}
 
-		await serialize(async () => {
+		await this.serialize(async () => {
 			if (!isActive()) {
 				return;
 			}
-			const paths = new Set(await this.vault.list());
-			const remoteIds = new Set(snapshot.files.map((file) => file.id));
-			for (const local of this.state.data.files) {
-				const existsRemotely = remoteIds.has(local.id);
-				const excluded = isExcluded(local.path, snapshot.exclusions);
-				const hasPendingChanges = this.state.data.pending.some((op) => op.fileId === local.id);
-				// A socket update or acknowledgment may already be newer than this snapshot.
-				if (existsRemotely || excluded || hasPendingChanges || local.revision > snapshot.revision) {
-					continue;
-				}
-				await this.removeDeleted(local, paths);
-			}
+
+			await this.removeDeletedFiles(snapshot);
 			this.state.data.revision = Math.max(this.state.data.revision, snapshot.revision);
 			this.state.data.r2Revision = Math.max(this.state.data.r2Revision, snapshot.r2Revision);
 			await this.state.persist();
 		});
+	}
+
+	private needsFetch(remote: FileRecord, snapshot: Snapshot): boolean {
+		if (isExcluded(remote.path, snapshot.exclusions) || this.hasPending(remote.id)) {
+			return false;
+		}
+
+		const local = this.state.data.files.find((file) => file.id === remote.id);
+
+		return !adoptReceived(local, remote);
+	}
+
+	private hasPending(fileId: string): boolean {
+		return this.state.data.pending.some((op) => op.fileId === fileId);
+	}
+
+	private async removeDeletedFiles(snapshot: Snapshot): Promise<void> {
+		const paths = new Set(await this.vault.list());
+		const remoteIds = new Set(snapshot.files.map((file) => file.id));
+
+		for (const local of this.state.data.files) {
+			const existsRemotely = remoteIds.has(local.id);
+			const excluded = isExcluded(local.path, snapshot.exclusions);
+			// A socket update or acknowledgment may already be newer than this snapshot.
+			const newerThanSnapshot = local.revision > snapshot.revision;
+			if (existsRemotely || excluded || this.hasPending(local.id) || newerThanSnapshot) {
+				continue;
+			}
+
+			await this.removeDeleted(local, paths);
+		}
 	}
 
 	private async removeDeleted(local: LocalFile, paths: Set<string>): Promise<void> {
@@ -129,6 +143,6 @@ export class ReconcileVault {
 
 		this.state.data.files = this.state.data.files.filter((file) => file.id !== local.id);
 		this.documents.remove(local.id);
-		await this.state.store.delete(`doc:${local.id}`);
+		await this.state.store.delete(documentKey(local.id));
 	}
 }

@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { afterEach, expect, it, vi } from "vitest";
 
-import { IndexedDbStore } from "../src/sync/infra/storage/indexed-db-store";
+import { IndexedDbStore } from "../src/infra/storage/indexed-db-store";
 
 const stores: IndexedDbStore[] = [];
 

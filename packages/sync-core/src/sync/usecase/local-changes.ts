@@ -1,9 +1,10 @@
-import { digest, isExcluded, pathSchema } from "@cf-sync/protocol";
+import { digest, fileKind, isExcluded, pathSchema } from "@cf-sync/protocol";
 import type { Content } from "@cf-sync/protocol";
 import { fromUint8Array } from "js-base64";
 import * as v from "valibot";
 import * as Y from "yjs";
 
+import { blobKey, documentKey } from "../domain/storage-keys";
 import type { LocalFile } from "../domain/sync-state";
 import type { StoredData } from "../ports/sync-store";
 import type { VaultPort } from "../ports/vault-port";
@@ -120,7 +121,7 @@ export class LocalChanges {
 
 	async editorChanged(file: LocalFile, doc: Y.Doc): Promise<void> {
 		const bytes = encoder.encode(doc.getText("content").toString());
-		await this.queueContent(file, bytes, doc);
+		await this.queueContent(file, bytes, await digest(bytes), doc);
 		await this.vault.write(file.path, bytes);
 		file.diskDigest = file.digest;
 		await this.state.persist();
@@ -181,18 +182,22 @@ export class LocalChanges {
 		}
 
 		file.diskDigest = hash;
-		await this.queueContent(file, bytes, doc);
+		await this.queueContent(file, bytes, hash, doc);
 		if (doc && !wasOpen) {
 			this.documents.remove(file.id);
 		}
 	}
 
-	private async queueContent(file: LocalFile, bytes: Uint8Array, doc?: Y.Doc): Promise<void> {
+	private async queueContent(
+		file: LocalFile,
+		bytes: Uint8Array,
+		hash: string,
+		doc: Y.Doc | undefined,
+	): Promise<void> {
 		let fullUpdate: Uint8Array | undefined;
 		if (doc) {
 			fullUpdate = Y.encodeStateAsUpdate(doc);
 		}
-		const hash = await digest(bytes);
 		let vector: Uint8Array | undefined;
 		let previous: Uint8Array | undefined;
 		if (fullUpdate && doc) {
@@ -234,7 +239,7 @@ export class LocalChanges {
 			}
 
 			return {
-				savedData: { key: `doc:${file.id}`, value: update },
+				savedData: { key: documentKey(file.id), value: update },
 				content: { kind: "text", update: fromUint8Array(sendingUpdate) },
 			};
 		}
@@ -242,16 +247,8 @@ export class LocalChanges {
 		const key = crypto.randomUUID();
 
 		return {
-			savedData: { key: `blob:${key}`, value: bytes },
+			savedData: { key: blobKey(key), value: bytes },
 			content: { kind: "blob", blob: { key, size: bytes.length, digest: hash } },
 		};
 	}
-}
-
-function fileKind(path: string): LocalFile["kind"] {
-	if (path.toLowerCase().endsWith(".md")) {
-		return "text";
-	}
-
-	return "blob";
 }

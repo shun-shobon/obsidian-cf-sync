@@ -13,12 +13,14 @@ vi.mock("obsidian", () => ({
 
 function createTab() {
 	const api = vi.fn();
+	const account = vi.fn();
 	const controller = {
 		config: { server: "https://sync.example.com", auth: { tokens: {} }, vaultId: "vault" },
 		api,
+		account,
 		run: (operation: () => Promise<void>) => operation(),
 	} as unknown as PluginController;
-	return { tab: new SyncSettingsTab({} as App, {} as Plugin, controller), api };
+	return { tab: new SyncSettingsTab({} as App, {} as Plugin, controller), api, account };
 }
 
 function names(items: SettingDefinitionItem[]): string[] {
@@ -32,7 +34,7 @@ function names(items: SettingDefinitionItem[]): string[] {
 
 describe("declarative settings", () => {
 	it("indexes local and remote setting names without making network requests", () => {
-		const { tab, api } = createTab();
+		const { tab, api, account } = createTab();
 		expect(names(tab.getSettingDefinitions())).toEqual([
 			"Server URL",
 			"Device name",
@@ -46,15 +48,16 @@ describe("declarative settings", () => {
 			"Conflict files",
 		]);
 		expect(api).not.toHaveBeenCalled();
+		expect(account).not.toHaveBeenCalled();
 	});
 
 	it("does not render a remote response after the setting has been torn down", async () => {
-		const { tab, api } = createTab();
+		const { tab, account } = createTab();
 		let resolve!: (value: []) => void;
 		const response = new Promise<[]>((done) => {
 			resolve = done;
 		});
-		api.mockReturnValue({ vaults: () => response });
+		account.mockReturnValue({ vaults: () => response });
 		const definition = tab
 			.getSettingDefinitions()
 			.find((item) => "name" in item && item.name === "Remote vault");
@@ -63,7 +66,7 @@ describe("declarative settings", () => {
 		}
 		const addDropdown = vi.fn();
 		const cleanup = definition.render({ addDropdown } as unknown as Setting, {} as never);
-		expect(api).toHaveBeenCalledOnce();
+		expect(account).toHaveBeenCalledOnce();
 		if (typeof cleanup !== "function") {
 			throw new TypeError("Remote vault render cleanup is missing");
 		}
@@ -74,8 +77,8 @@ describe("declarative settings", () => {
 	});
 
 	it("removes the extra device container when the rendered row is torn down", async () => {
-		const { tab, api } = createTab();
-		api.mockReturnValue({ devices: async () => [] });
+		const { tab, account } = createTab();
+		account.mockReturnValue({ devices: async () => [] });
 		const document = new Window().document;
 		const container = document.createElement("div");
 		const settingEl = document.createElement("div");

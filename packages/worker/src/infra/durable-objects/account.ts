@@ -2,22 +2,18 @@ import type { Device, VaultInfo } from "@cf-sync/protocol";
 import { DurableObject } from "cloudflare:workers";
 
 import { ApplicationError } from "../../domain/errors";
-import { revokeDevice } from "../../usecase/revoke-device";
 import { AccountRepository } from "../account-repository";
-import { DurableObjectDeviceConnections } from "../device-connections";
 import type { Env } from "../env";
-import { rpcResult } from "../rpc-result";
+import { rpcResult, unwrapRpcResult } from "../rpc-result";
 import type { RpcResult } from "../rpc-result";
 
 export class Account extends DurableObject<Env> {
 	private readonly repository: AccountRepository;
-	private readonly connections: DurableObjectDeviceConnections;
 
 	constructor(state: DurableObjectState, env: Env) {
 		super(state, env);
 
 		this.repository = new AccountRepository(state.storage);
-		this.connections = new DurableObjectDeviceConnections(env.VAULTS);
 	}
 
 	devices(): Promise<RpcResult<Device[]>> {
@@ -34,21 +30,23 @@ export class Account extends DurableObject<Env> {
 	}
 
 	device(id: string): Promise<RpcResult<Device>> {
+		return rpcResult(() => this.activeDevice(id));
+	}
+
+	authorizeVaultAccess(deviceId: string, vaultId: string): Promise<RpcResult<void>> {
 		return rpcResult(async () => {
-			const device = await this.repository.device(id);
-
-			if (device.revoked) {
-				throw new ApplicationError("forbidden", "Device revoked");
-			}
-
-			return device;
+			await this.activeDevice(deviceId);
+			await this.repository.vault(vaultId);
 		});
 	}
 
 	revokeDevice(id: string): Promise<RpcResult<void>> {
 		return rpcResult(async () => {
 			const device = await this.repository.device(id);
-			await revokeDevice(device, this.repository, this.connections);
+			await this.repository.revoke(device);
+
+			const vaults = await this.repository.vaults();
+			await Promise.all(vaults.map((vault) => this.closeDeviceConnections(vault.id, id)));
 			console.info({ event: "device.revoked", deviceId: id });
 		});
 	}
@@ -68,5 +66,21 @@ export class Account extends DurableObject<Env> {
 
 	vault(id: string): Promise<RpcResult<VaultInfo>> {
 		return rpcResult(() => this.repository.vault(id));
+	}
+
+	private async activeDevice(id: string): Promise<Device> {
+		const device = await this.repository.device(id);
+
+		if (device.revoked) {
+			throw new ApplicationError("forbidden", "Device revoked");
+		}
+
+		return device;
+	}
+
+	private async closeDeviceConnections(vaultId: string, deviceId: string): Promise<void> {
+		const vault = this.env.VAULTS.getByName(vaultId);
+
+		unwrapRpcResult(await vault.revokeDevice(deviceId));
 	}
 }

@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { BlobStorage } from "../src/infra/blob-storage";
+import type { R2VaultArchive } from "../src/infra/r2-vault-archive";
 import { VaultMaintenance } from "../src/infra/vault-maintenance";
+import type { VaultRepository } from "../src/infra/vault-repository";
 import { VaultSockets } from "../src/infra/vault-sockets";
 import { FlushVault } from "../src/usecase/flush-vault";
-import type { VaultArchive, VaultNotifications, VaultStore } from "../src/usecase/ports";
 
 function storage() {
 	const data = new Map<string, unknown>();
@@ -29,17 +30,30 @@ function storage() {
 	};
 }
 
+function maintenanceFor(state: ReturnType<typeof storage>) {
+	const durableStorage = state as unknown as DurableObjectStorage;
+	const sockets = new VaultSockets({ storage: durableStorage } as DurableObjectState);
+
+	return new VaultMaintenance(durableStorage, sockets);
+}
+
+function socketsMock() {
+	return { expire: async () => {}, broadcast: vi.fn() } as unknown as VaultSockets & {
+		broadcast: ReturnType<typeof vi.fn>;
+	};
+}
+
 describe("maintenance deadlines", () => {
 	it("advances distant GC alarms and restores deadlines after reconstruction", async () => {
 		const state = storage();
-		const maintenance = new VaultMaintenance(state as unknown as DurableObjectStorage);
+		const maintenance = maintenanceFor(state);
 		await maintenance.complete("blobs", Date.now() + 86_400_000);
 		await maintenance.schedule();
 		await maintenance.request("flush");
 		const deadline = await state.getAlarm();
 		expect(deadline).toBeLessThan(Date.now() + 11_000);
 
-		const restored = new VaultMaintenance(state as unknown as DurableObjectStorage);
+		const restored = maintenanceFor(state);
 		await restored.schedule();
 		expect(await state.getAlarm()).toBe(deadline);
 	});
@@ -47,21 +61,27 @@ describe("maintenance deadlines", () => {
 	it("retains failed GC work independently of successfully flushed changes", async () => {
 		const state = storage();
 		state.data.set("maintenance:blobs", Date.now() - 1);
-		const maintenance = new VaultMaintenance(state as unknown as DurableObjectStorage);
+		const maintenance = maintenanceFor(state);
 		const repository = {
 			meta: async () => ({ vaultId: "vault", revision: 0, r2Revision: 0, exclusions: [] }),
 			files: async () => [],
-		} as unknown as VaultStore;
-		const sockets = { expire: async () => {}, broadcast: vi.fn() } satisfies VaultNotifications;
+		} as unknown as VaultRepository;
+		const sockets = socketsMock();
 		const archive = {
 			collectUnreferenced: vi
 				.fn()
 				.mockRejectedValueOnce(new Error("R2 down"))
 				.mockResolvedValue(null),
-		} as unknown as VaultArchive;
+		} as unknown as R2VaultArchive;
 		const flush = new FlushVault(repository, sockets, archive, maintenance, (action) => action());
+		const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
-		await expect(flush.execute()).rejects.toThrow("R2 down");
+		await flush.execute();
+		expect(logged).toHaveBeenCalledExactlyOnceWith({
+			event: "vault.maintenance.failed",
+			error: "R2 down",
+		});
+		logged.mockRestore();
 		expect(await state.getAlarm()).toBeGreaterThan(Date.now());
 		expect(state.data.has("maintenance:blobs")).toBe(true);
 		state.data.set("maintenance:blobs", Date.now() - 1);
@@ -128,13 +148,17 @@ it("loads one document at a time when flushing a vault with many dirty notes", a
 	const meta = { vaultId: "vault", revision: 160, r2Revision: 0, exclusions: [] };
 	const files = Array.from({ length: 160 }, (_, index) => ({
 		file: { id: String(index), path: `${index}.md`, revision: index + 1 },
+		chunks: 1,
 	}));
+	const findFile = vi.fn(async (id: string) => files.find(({ file }) => file.id === id));
+	const listFiles = vi.fn(async () => files);
 	let loaded = 0;
 	let written = 0;
 	const markFlushed = vi.fn();
 	const repository = {
 		meta: async () => meta,
-		files: async () => files,
+		files: listFiles,
+		findFile,
 		dirtyPaths: async () => files.map(({ file }) => file.path),
 		content: async () => {
 			expect(loaded).toBe(written);
@@ -142,23 +166,25 @@ it("loads one document at a time when flushing a vault with many dirty notes", a
 			return { kind: "text", update: "large document CRDT" };
 		},
 		markFlushed,
-	} as unknown as VaultStore;
+	} as unknown as VaultRepository;
 	const archive = {
 		write: async () => {
 			written++;
 		},
 		delete: vi.fn(),
-	} as unknown as VaultArchive;
+	} as unknown as R2VaultArchive;
 	const state = storage();
 	state.data.set("maintenance:flush", Date.now() - 1);
 	const flush = new FlushVault(
 		repository,
-		{ expire: async () => {}, broadcast: vi.fn() },
+		socketsMock(),
 		archive,
-		new VaultMaintenance(state as unknown as DurableObjectStorage),
+		maintenanceFor(state),
 		(action) => action(),
 	);
 	await flush.execute();
 	expect(written).toBe(files.length);
 	expect(markFlushed).toHaveBeenCalledOnce();
+	expect(findFile).toHaveBeenCalledTimes(files.length);
+	expect(listFiles).toHaveBeenCalledOnce();
 });

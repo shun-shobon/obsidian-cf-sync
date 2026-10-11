@@ -6,7 +6,12 @@ import * as Y from "yjs";
 
 type OutgoingPresence = Extract<ClientMessage, { type: "presence" }>;
 type IncomingPresence = Extract<ServerMessage, { type: "presence" }>;
-type RemotePresence = { message: IncomingPresence; expiry: ReturnType<typeof setTimeout> };
+type RemoteCursor = { anchor: Y.RelativePosition; head: Y.RelativePosition };
+type RemotePresence = {
+	message: IncomingPresence;
+	cursor: RemoteCursor;
+	expiry: ReturnType<typeof setTimeout>;
+};
 
 export class Presence {
 	private readonly documents = new Map<Y.Doc, { fileId: string; awareness: Awareness }>();
@@ -35,8 +40,8 @@ export class Presence {
 		// automatic local updates so inactive panes cannot overwrite that selection.
 		awareness.setLocalState(null);
 		this.documents.set(doc, { fileId, awareness });
-		for (const { message } of this.remote.values()) {
-			this.apply(awareness, fileId, message);
+		for (const remote of this.remote.values()) {
+			this.apply(awareness, fileId, remote);
 		}
 		doc.on("destroy", () => {
 			this.documents.delete(doc);
@@ -54,8 +59,8 @@ export class Presence {
 		}
 		removeAwarenessStates(entry.awareness, [...entry.awareness.getStates().keys()], "remote");
 		entry.fileId = fileId;
-		for (const { message } of this.remote.values()) {
-			this.apply(entry.awareness, fileId, message);
+		for (const remote of this.remote.values()) {
+			this.apply(entry.awareness, fileId, remote);
 		}
 		if (this.active?.doc === doc) {
 			this.active.message = { ...this.active.message, fileId };
@@ -146,11 +151,13 @@ export class Presence {
 		if (message.deviceId === this.options.deviceId) {
 			return;
 		}
-		// Decode before changing visible state. Invalid positions must not partially
-		// replace a peer's last valid cursor.
+		let cursor: RemoteCursor | undefined;
 		if (message.cursor) {
-			Y.decodeRelativePosition(toUint8Array(message.cursor.anchor));
-			Y.decodeRelativePosition(toUint8Array(message.cursor.head));
+			cursor = decodeCursor(message.cursor);
+			// A peer's broken cursor must neither stop sync nor replace its last valid cursor.
+			if (!cursor) {
+				return;
+			}
 		}
 		const previous = this.remote.get(message.deviceId);
 		if (previous) {
@@ -163,16 +170,18 @@ export class Presence {
 				this.removeRemote(message.deviceId);
 			}
 		}
-		if (!message.cursor || message.fileId == null) {
+		if (!cursor || message.fileId == null) {
 			this.removeRemote(message.deviceId);
 			return;
 		}
-		this.remote.set(message.deviceId, {
+		const remote: RemotePresence = {
 			message,
+			cursor,
 			expiry: setTimeout(() => this.removeRemote(message.deviceId), 10_000),
-		});
+		};
+		this.remote.set(message.deviceId, remote);
 		for (const { fileId, awareness } of this.documents.values()) {
-			this.apply(awareness, fileId, message);
+			this.apply(awareness, fileId, remote);
 		}
 	}
 
@@ -231,8 +240,8 @@ export class Presence {
 		}
 	}
 
-	private apply(awareness: Awareness, fileId: string, message: IncomingPresence) {
-		if (message.fileId !== fileId || !message.cursor || message.clientId === awareness.clientID) {
+	private apply(awareness: Awareness, fileId: string, { message, cursor }: RemotePresence) {
+		if (message.fileId !== fileId || message.clientId === awareness.clientID) {
 			return;
 		}
 		const hue =
@@ -245,10 +254,7 @@ export class Presence {
 				color: `hsl(${hue}, 70%, 42%)`,
 				colorLight: `hsla(${hue}, 70%, 42%, 0.2)`,
 			},
-			cursor: {
-				anchor: Y.decodeRelativePosition(toUint8Array(message.cursor.anchor)),
-				head: Y.decodeRelativePosition(toUint8Array(message.cursor.head)),
-			},
+			cursor,
 		};
 		const encoder = encoding.createEncoder();
 		encoding.writeVarUint(encoder, 1);
@@ -256,5 +262,16 @@ export class Presence {
 		encoding.writeVarUint(encoder, (awareness.meta.get(message.clientId)?.clock ?? 0) + 1);
 		encoding.writeVarString(encoder, JSON.stringify(state));
 		applyAwarenessUpdate(awareness, encoding.toUint8Array(encoder), "remote");
+	}
+}
+
+function decodeCursor(cursor: NonNullable<IncomingPresence["cursor"]>): RemoteCursor | undefined {
+	try {
+		return {
+			anchor: Y.decodeRelativePosition(toUint8Array(cursor.anchor)),
+			head: Y.decodeRelativePosition(toUint8Array(cursor.head)),
+		};
+	} catch {
+		return undefined;
 	}
 }

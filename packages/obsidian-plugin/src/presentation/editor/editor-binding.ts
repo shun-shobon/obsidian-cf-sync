@@ -1,3 +1,4 @@
+import { fileKind } from "@cf-sync/protocol";
 import type { Compartment } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { editorInfoField } from "obsidian";
@@ -103,7 +104,7 @@ export class EditorBinding {
 			return;
 		}
 
-		if (!path.endsWith(".md")) {
+		if (fileKind(path) !== "text") {
 			return;
 		}
 

@@ -2,30 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { Server } from "../../obsidian-plugin/tests/helpers/sync-server";
 import { Vault } from "../../obsidian-plugin/tests/helpers/sync-vault";
-import { PlanSync, SyncOnce } from "../src";
-import type { LocalState, StoredData, SyncStore } from "../src";
+import { DocumentNotFoundError, PlanSync, SyncOnce } from "../src";
+import { withAttachments } from "./helpers/attachment-api";
+import { Store } from "./helpers/memory-store";
 
-class Store implements SyncStore {
-	state: LocalState | undefined;
-	data = new Map<string, Uint8Array>();
-	async load() {
-		return structuredClone(this.state);
-	}
-	async save(state: LocalState, data?: StoredData) {
-		this.state = structuredClone(state);
-		if (data) await this.put(data.key, data.value);
-	}
-	async get(key: string) {
-		return this.data.get(key)?.slice();
-	}
-	async put(key: string, value: Uint8Array) {
-		this.data.set(key, value.slice());
-	}
-	async delete(key: string) {
-		this.data.delete(key);
-	}
-	close() {}
-}
 const bytes = (text: string) => new TextEncoder().encode(text);
 
 function deferred() {
@@ -54,6 +34,21 @@ describe("HTTP batch synchronization", () => {
 		expect(server.operations).toHaveLength(before);
 	});
 
+	it("does not download attachments this device already holds", async () => {
+		const server = new Server();
+		const attachments = withAttachments(server);
+		const left = { vault: new Vault(), store: new Store(), api: attachments.api };
+		await left.vault.write("image.png", new Uint8Array([1, 2, 3]));
+		await new SyncOnce(left).run();
+		await new SyncOnce(left).run();
+		expect(attachments.downloads).toHaveLength(0);
+		const right = { vault: new Vault(), store: new Store(), api: attachments.api };
+		await new SyncOnce(right).run();
+		await new SyncOnce(right).run();
+		expect(right.vault.files.get("image.png")).toEqual(new Uint8Array([1, 2, 3]));
+		expect(attachments.downloads).toHaveLength(1);
+	});
+
 	it("finishes when a received document is newer than the requested snapshot", async () => {
 		const server = new Server();
 		const left = { vault: new Vault(), store: new Store(), api: server.api };
@@ -67,6 +62,34 @@ describe("HTTP batch synchronization", () => {
 		await new SyncOnce(right).run();
 		expect(right.vault.text("note.md")).toBe("newer");
 		expect(api.snapshot).toHaveBeenCalledTimes(2);
+	});
+
+	it("retries with a new snapshot when a listed document is missing", async () => {
+		const server = new Server();
+		const left = { vault: new Vault(), store: new Store(), api: server.api };
+		const document = vi.fn(server.api.document.bind(server.api));
+		const right = { vault: new Vault(), store: new Store(), api: { ...server.api, document } };
+		await new SyncOnce(right).run();
+		await left.vault.write("note.md", bytes("hello"));
+		await new SyncOnce(left).run();
+		document.mockRejectedValueOnce(new DocumentNotFoundError("deleted"));
+
+		await new SyncOnce(right).run();
+
+		expect(right.vault.text("note.md")).toBe("hello");
+	});
+
+	it("fails when a document stays missing from the same snapshot", async () => {
+		const server = new Server();
+		const left = { vault: new Vault(), store: new Store(), api: server.api };
+		const document = vi.fn(server.api.document.bind(server.api));
+		const right = { vault: new Vault(), store: new Store(), api: { ...server.api, document } };
+		await new SyncOnce(right).run();
+		await left.vault.write("note.md", bytes("hello"));
+		await new SyncOnce(left).run();
+		document.mockRejectedValue(new DocumentNotFoundError("deleted"));
+
+		await expect(new SyncOnce(right).run()).rejects.toBeInstanceOf(DocumentNotFoundError);
 	});
 
 	it("waits for the other transfer lane before rejecting a failed upload", async () => {

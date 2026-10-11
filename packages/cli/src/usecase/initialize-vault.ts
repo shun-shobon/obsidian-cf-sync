@@ -2,15 +2,17 @@ import { mkdir, realpath } from "node:fs/promises";
 import { hostname } from "node:os";
 import { resolve } from "node:path";
 
+import { AccountApi } from "@cf-sync/sync-core";
+
 import { resolveCredentials } from "../infra/config/credentials";
 import { resolveServerUrl } from "../infra/config/server-url";
-import { FileVault } from "../infra/fs/vault-adapter";
+import { assertSupportedFiles } from "../infra/fs/vault-adapter";
 import {
 	assertUninitialized,
 	ensureMetadataDirectory,
 	writeBinding,
 } from "../infra/fs/vault-binding";
-import { RestApi } from "../infra/http/api-client";
+import { serverConnection } from "../infra/http/server-connection";
 import { lockVault } from "../infra/storage/vault-lock";
 
 export interface InitializeOptions {
@@ -23,8 +25,8 @@ export async function initializeVault(options: InitializeOptions, env: NodeJS.Pr
 	const serverUrl = resolveServerUrl(options.server, env);
 	const credentials = await resolveCredentials(serverUrl, env);
 	const deviceId = crypto.randomUUID();
-	const api = new RestApi(serverUrl, credentials, deviceId, options.vaultId);
-	const vaults = await api.vaults();
+	const account = new AccountApi(serverConnection(serverUrl, credentials));
+	const vaults = await account.vaults();
 	const vaultExists = vaults.some((vault) => vault.id === options.vaultId);
 
 	if (!vaultExists) {
@@ -34,12 +36,12 @@ export async function initializeVault(options: InitializeOptions, env: NodeJS.Pr
 	await mkdir(resolve(options.directory), { recursive: true });
 	const directory = await realpath(resolve(options.directory));
 	const metadata = await ensureMetadataDirectory(directory);
-	const unlock = await lockVault(metadata);
+	const unlock = lockVault(metadata);
 
 	try {
 		await assertUninitialized(metadata);
-		await new FileVault(directory).list();
-		await api.registerDevice(`${hostname()} CLI`);
+		await assertSupportedFiles(directory);
+		await account.registerDevice(deviceId, `${hostname()} CLI`);
 		await writeBinding(metadata, { serverUrl, vaultId: options.vaultId, deviceId });
 
 		return { initialized: true, directory, serverUrl, vaultId: options.vaultId };

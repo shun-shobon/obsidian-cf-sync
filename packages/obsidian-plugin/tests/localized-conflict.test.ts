@@ -7,7 +7,7 @@ import { SendPending } from "@cf-sync/sync-core/sync/usecase/send-pending";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { setLanguage } from "../src/i18n";
-import { IndexedDbStore } from "../src/sync/infra/storage/indexed-db-store";
+import { IndexedDbStore } from "../src/infra/storage/indexed-db-store";
 
 const cases: [OperationResult["conflictReason"], string, string][] = [
 	[

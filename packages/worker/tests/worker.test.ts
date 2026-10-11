@@ -182,7 +182,11 @@ describe("Vault durable synchronization", () => {
 		s.restart();
 		expect(await s.operation(op)).toEqual(result);
 		s.fail(true);
-		await expect(s.alarm()).rejects.toThrow("R2 down");
+		const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+		await s.alarm();
+		expect(logged).toHaveBeenCalledWith({ event: "vault.maintenance.failed", error: "R2 down" });
+		logged.mockRestore();
+		expect(s.storage.alarm).toBeGreaterThan(Date.now());
 		expect((await s.snapshot()).r2Revision).toBe(0);
 		s.fail(false);
 		await s.alarm();
@@ -286,7 +290,8 @@ describe("Vault durable synchronization", () => {
 			path: "new.md",
 		});
 		s.fail(true);
-		await expect(s.alarm()).rejects.toThrow("R2 down");
+		vi.spyOn(console, "error").mockImplementationOnce(() => {});
+		await s.alarm();
 		expect(s.objects.has(`vaults/${s.vaultId}/files/old.md`)).toBe(true);
 		s.fail(false);
 		await s.alarm();
@@ -359,6 +364,23 @@ describe("Durable Object RPC", () => {
 		await s.revoke();
 		await expect(s.snapshot()).rejects.toMatchObject({ kind: "forbidden" });
 	});
+
+	it.each(["{", JSON.stringify({ type: "create" })])(
+		"rejects an invalid operation body as invalid input: %s",
+		async (body) => {
+			const s = setup();
+			const stream = new Blob([body]).stream();
+			const vault = new Vault(
+				{ storage: s.storage, getWebSockets: () => [] } as unknown as DurableObjectState,
+				s.env,
+			);
+
+			expect(await vault.applyOperation(s.vaultId, s.deviceId, stream)).toMatchObject({
+				ok: false,
+				error: { kind: "invalid-input" },
+			});
+		},
+	);
 
 	it("reads the latest metadata for every request", async () => {
 		const s = setup();
@@ -497,6 +519,7 @@ describe("realtime synchronization", () => {
 		await s.message(s.sockets[0]!, JSON.stringify(presence));
 		expect(JSON.parse(ws.send.mock.calls[0]![0])).toEqual({ ...presence, deviceId: s.deviceId });
 		s.close(s.sockets[0]!);
+		expect(ws.close).not.toHaveBeenCalled();
 		expect(JSON.parse(ws.send.mock.calls.at(-1)![0])).toMatchObject({
 			type: "presence",
 			fileId: null,

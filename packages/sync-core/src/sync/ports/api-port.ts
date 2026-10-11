@@ -22,5 +22,8 @@ export interface RestApiPort {
 }
 
 export interface ApiPort extends RestApiPort {
-	connect(message: (message: ServerMessage) => void, close: () => void): Promise<SyncSocket>;
+	connect(
+		message: (message: ServerMessage) => void,
+		close: (error: Error) => void,
+	): Promise<SyncSocket>;
 }
