@@ -1,10 +1,9 @@
 import type { Content } from "@cf-sync/protocol";
 
 import { materializeText } from "../service/text-content";
-import type { VaultArchive } from "../usecase/ports";
 import { BlobStorage } from "./blob-storage";
 
-export class R2VaultArchive implements VaultArchive {
+export class R2VaultArchive {
 	constructor(private readonly bucket: R2Bucket) {}
 
 	async write(vaultId: string, path: string, content: Content): Promise<void> {

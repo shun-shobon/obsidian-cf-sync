@@ -1,21 +1,25 @@
+import type { FileRecord } from "@cf-sync/protocol";
+
+import { DocumentNotFoundError } from "../../domain/document-not-found-error";
 import type { SyncResult } from "../domain/sync-result";
 import { needsReceive } from "../service/snapshot-state";
 import { SendPending } from "./send-pending";
 import type { SyncOnceOptions } from "./sync-once-options";
-import { SyncSession } from "./sync-session";
+import { SyncSession, batchHooks } from "./sync-session";
 
 export class SyncOnce {
+	private readonly conflicts: FileRecord[] = [];
 	private readonly session: SyncSession;
 	private readonly sender: SendPending;
-	private serial: Promise<unknown> = Promise.resolve();
+	private missingAtRevision: number | undefined;
 
 	constructor(private readonly options: SyncOnceOptions) {
-		this.session = new SyncSession(options);
+		this.session = new SyncSession(options, batchHooks(this.conflicts));
 		this.sender = new SendPending(
 			this.session.state,
 			options.api,
 			this.session.documents,
-			(work) => this.enqueue(work),
+			(work) => this.session.enqueue(work),
 			(operation) => options.api.operate(operation),
 			() => {},
 		);
@@ -37,7 +41,7 @@ export class SyncOnce {
 				revision: data.revision,
 				r2Revision: data.r2Revision,
 				pending: data.pending.length,
-				conflicts: structuredClone(this.session.conflicts),
+				conflicts: structuredClone(this.conflicts),
 			};
 		} finally {
 			this.session.dispose();
@@ -45,20 +49,22 @@ export class SyncOnce {
 	}
 
 	private async synchronize(): Promise<boolean> {
-		const { state, reconcile, receive } = this.session;
+		const { state, reconcile } = this.session;
 
 		await this.sender.run(() => true);
 
 		const snapshot = await this.options.api.snapshot();
 		const filesBefore = JSON.stringify(state.data.files);
-		state.data.exclusions = snapshot.exclusions;
 
-		await reconcile.run(
-			snapshot,
-			(work) => this.enqueue(work),
-			(file) => receive.fetch(file.id),
-			() => true,
-		);
+		try {
+			await reconcile.run(snapshot, () => true);
+		} catch (error) {
+			if (this.retriesWithNewSnapshot(error, snapshot.revision)) {
+				return true;
+			}
+
+			throw error;
+		}
 
 		const pending = state.hasPending();
 		const remaining = pending || needsReceive(state.data, snapshot);
@@ -71,10 +77,14 @@ export class SyncOnce {
 		return remaining;
 	}
 
-	private enqueue<T>(work: () => T | Promise<T>): Promise<T> {
-		const next = this.serial.then(work);
-		this.serial = next.catch(() => {});
+	private retriesWithNewSnapshot(error: unknown, revision: number): boolean {
+		// 同じrevisionで再び見つからなければ一覧と本文が食い違っており、再取得しても解消しない
+		if (!(error instanceof DocumentNotFoundError) || this.missingAtRevision === revision) {
+			return false;
+		}
 
-		return next;
+		this.missingAtRevision = revision;
+
+		return true;
 	}
 }

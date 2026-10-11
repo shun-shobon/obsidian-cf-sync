@@ -1,11 +1,15 @@
 import { FLUSH_INTERVAL_MS } from "../domain/vault-state";
+import type { VaultSockets } from "./vault-sockets";
 
 export type MaintenanceTask = "flush" | "blobs";
 
-type AlarmStorage = DurableObjectStorage | DurableObjectTransaction;
+export type AlarmStorage = DurableObjectStorage | DurableObjectTransaction;
 
 export class VaultMaintenance {
-	constructor(private readonly storage: DurableObjectStorage) {}
+	constructor(
+		private readonly storage: DurableObjectStorage,
+		private readonly sockets: VaultSockets,
+	) {}
 
 	async request(task: MaintenanceTask, storage: AlarmStorage = this.storage): Promise<void> {
 		const key = `maintenance:${task}`;
@@ -50,23 +54,13 @@ export class VaultMaintenance {
 
 	async schedule(storage: AlarmStorage = this.storage): Promise<void> {
 		const tasks = await storage.list<number>({ prefix: "maintenance:" });
-		const tickets = await storage.list<{ expiresAt: number }>({ prefix: "ticket:" });
-		const deadlines = [
-			...tasks.values(),
-			...[...tickets.values()].map((ticket) => ticket.expiresAt),
-		];
+		const deadlines = [...tasks.values(), ...(await this.sockets.ticketExpiries(storage))];
 
 		if (deadlines.length === 0) {
 			await storage.deleteAlarm();
 			return;
 		}
 
-		let earliest = Infinity;
-
-		for (const deadline of deadlines) {
-			earliest = Math.min(earliest, deadline);
-		}
-
-		await storage.setAlarm(earliest);
+		await storage.setAlarm(Math.min(...deadlines));
 	}
 }

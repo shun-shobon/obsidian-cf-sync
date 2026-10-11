@@ -3,6 +3,7 @@ import { toUint8Array } from "js-base64";
 import * as Y from "yjs";
 
 import { t } from "../../i18n";
+import { documentKey, incomingKey } from "../domain/storage-keys";
 import type { IncomingWrite } from "../domain/sync-state";
 import type { StoredData } from "../ports/sync-store";
 import type { VaultPort } from "../ports/vault-port";
@@ -39,7 +40,7 @@ export class RecoverIncoming {
 		}
 
 		if (currentDigest === incoming.expectedDigest) {
-			await this.clearIncoming();
+			await this.state.clearIncoming();
 
 			return;
 		}
@@ -52,17 +53,12 @@ export class RecoverIncoming {
 	}
 
 	private async receivedBytes(): Promise<Uint8Array> {
-		const received = await this.state.store.get("incoming");
+		const received = await this.state.store.get(incomingKey);
 		if (!received) {
 			throw new Error(t(($) => $.errors.missingIncoming));
 		}
 
 		return received;
-	}
-
-	private async clearIncoming(): Promise<void> {
-		await this.state.store.save({ ...this.state.data, incoming: null });
-		this.state.data.incoming = null;
 	}
 
 	private async preserveCopy(
@@ -98,7 +94,7 @@ export class RecoverIncoming {
 			});
 		}
 
-		await this.clearIncoming();
+		await this.state.clearIncoming();
 	}
 
 	private async recoverChangedFile(
@@ -137,11 +133,10 @@ export class RecoverIncoming {
 
 		let data: StoredData | undefined;
 		if (incoming.update != null && incoming.update !== "") {
-			data = { key: `doc:${local.id}`, value: toUint8Array(incoming.update) };
+			data = { key: documentKey(local.id), value: toUint8Array(incoming.update) };
 		}
 
-		await this.state.store.save({ ...this.state.data, incoming: null }, data);
-		this.state.data.incoming = null;
+		await this.state.clearIncoming(data);
 		const doc = this.documents.get(local.id);
 		if (data && doc) {
 			Y.applyUpdate(doc, data.value, "remote");

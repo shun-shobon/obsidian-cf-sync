@@ -1,8 +1,9 @@
 import { isExcluded } from "@cf-sync/protocol";
-import type { FileRecord, Operation, Snapshot } from "@cf-sync/protocol";
+import type { Operation, Snapshot } from "@cf-sync/protocol";
 
 import type { SyncPlan } from "../domain/sync-plan";
 import type { LocalFile, LocalState } from "../domain/sync-state";
+import { hasReceived } from "./snapshot-state";
 
 export function buildSyncPlan(
 	data: LocalState,
@@ -58,7 +59,7 @@ function planDownloads(data: LocalState, snapshot: Snapshot): SyncPlan["download
 		}
 
 		const local = data.files.find((file) => file.id === remote.id);
-		if (!needsDownload(local, remote)) {
+		if (hasReceived(local, remote)) {
 			continue;
 		}
 
@@ -69,14 +70,6 @@ function planDownloads(data: LocalState, snapshot: Snapshot): SyncPlan["download
 	}
 
 	return downloads;
-}
-
-function needsDownload(local: LocalFile | undefined, remote: FileRecord): boolean {
-	if (!local || local.digest !== remote.digest || local.path !== remote.path) {
-		return true;
-	}
-
-	return remote.kind === "text" && local.documentRevision < remote.revision;
 }
 
 function appendRemoteDeletions(

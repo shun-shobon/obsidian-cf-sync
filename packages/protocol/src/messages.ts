@@ -30,11 +30,6 @@ const settingsMessageSchema = v.object({
 	revision: integerSchema,
 });
 
-const errorMessageSchema = v.object({
-	type: v.literal("error"),
-	message: v.string(),
-});
-
 const presenceFields = {
 	fileId: v.nullable(idSchema),
 	clientId: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
@@ -67,7 +62,6 @@ export const serverMessageSchema = v.variant("type", [
 	textMessageSchema,
 	r2MessageSchema,
 	settingsMessageSchema,
-	errorMessageSchema,
 ]);
 
 export type ServerMessage = v.InferOutput<typeof serverMessageSchema>;

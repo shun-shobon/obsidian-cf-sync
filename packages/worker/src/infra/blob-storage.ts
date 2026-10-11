@@ -11,6 +11,9 @@ const contentSizeSchema = v.pipe(
 	v.minValue(0),
 );
 
+// R2 bindings expose API error codes only as a message suffix: BadDigest and IncompleteBody.
+const R2_CONTENT_ERRORS = [10037, 10013];
+
 export class BlobStorage {
 	constructor(
 		private readonly bucket: R2Bucket,
@@ -29,13 +32,8 @@ export class BlobStorage {
 
 	async validate(blob: BlobRef): Promise<void> {
 		const object = await this.bucket.head(this.key(blob.key));
-
-		if (!object) {
-			throw new ApplicationError("invalid-input", "Blob is missing or does not match");
-		}
-
-		const sizeMatches = object.size === blob.size;
-		const digestMatches = object.customMetadata?.["digest"] === blob.digest;
+		const sizeMatches = object?.size === blob.size;
+		const digestMatches = object?.customMetadata?.["digest"] === blob.digest;
 
 		if (!sizeMatches || !digestMatches) {
 			throw new ApplicationError("invalid-input", "Blob is missing or does not match");
@@ -62,43 +60,18 @@ export class BlobStorage {
 			throw new ApplicationError("invalid-input", "Missing body");
 		}
 
-		const abort = new AbortController();
-
-		try {
-			if (sizeHeader == null) {
-				throw new ApplicationError("length-required", "X-Content-Size required");
-			}
-
-			const length = v.parse(contentSizeSchema, sizeHeader);
-			const stream = new FixedLengthStream(length);
-			const writing = body.pipeTo(stream.writable, { signal: abort.signal });
-			const [object] = await Promise.all([
-				this.bucket.put(this.key(key), stream.readable, {
-					onlyIf: { etagDoesNotMatch: "*" },
-					sha256: expected,
-					customMetadata: { digest: expected },
-				}),
-				writing,
-			]);
-
-			if (!object) {
-				throw new Error("Blob write failed");
-			}
-
-			return { key, size: object.size, digest: expected };
-		} catch (error) {
-			abort.abort(error);
-
-			if (error instanceof ApplicationError) {
-				throw error;
-			}
-
-			console.error(error);
-			throw new ApplicationError(
-				"invalid-input",
-				"Blob upload failed; verify digest and request size",
-			);
+		if (sizeHeader == null) {
+			throw new ApplicationError("length-required", "X-Content-Size required");
 		}
+
+		const length = v.parse(contentSizeSchema, sizeHeader);
+		const object = await this.store(key, expected, body, length);
+
+		if (!object) {
+			throw new ApplicationError("conflict", "Blob was uploaded concurrently");
+		}
+
+		return { key, size: object.size, digest: expected };
 	}
 
 	async collectUnreferenced(referenced: Set<string>): Promise<number | null> {
@@ -143,7 +116,78 @@ export class BlobStorage {
 		return nextExpiry;
 	}
 
+	private async store(
+		key: string,
+		expected: string,
+		body: ReadableStream<Uint8Array>,
+		length: number,
+	): Promise<R2Object | null> {
+		const stream = new FixedLengthStream(length);
+		const counter = new ByteCounter(length);
+		const abort = new AbortController();
+		const writing = body
+			.pipeThrough(counter.stream)
+			.pipeTo(stream.writable, { signal: abort.signal });
+		const putting = this.bucket.put(this.key(key), stream.readable, {
+			onlyIf: { etagDoesNotMatch: "*" },
+			sha256: expected,
+			customMetadata: { digest: expected },
+		});
+		const [written, put] = await Promise.allSettled([
+			writing,
+			putting.catch((error: unknown) => {
+				abort.abort(error);
+				throw error;
+			}),
+		]);
+
+		if (counter.mismatched) {
+			throw new ApplicationError("invalid-input", "Blob body does not match X-Content-Size");
+		}
+
+		if (put.status === "rejected") {
+			throwPutError(put.reason);
+		}
+
+		if (written.status === "rejected") {
+			throw written.reason;
+		}
+
+		return put.value;
+	}
+
 	private key(key: string): string {
 		return `staging/${this.vaultId}/${key}`;
 	}
+}
+
+class ByteCounter {
+	mismatched = false;
+	readonly stream: TransformStream<Uint8Array, Uint8Array>;
+
+	constructor(length: number) {
+		let received = 0;
+
+		this.stream = new TransformStream({
+			transform: (chunk, controller) => {
+				received += chunk.byteLength;
+				this.mismatched ||= received > length;
+				controller.enqueue(chunk);
+			},
+			flush: () => {
+				this.mismatched ||= received !== length;
+			},
+		});
+	}
+}
+
+function throwPutError(error: unknown): never {
+	const rejectedContent =
+		error instanceof Error && R2_CONTENT_ERRORS.some((code) => error.message.endsWith(`(${code})`));
+
+	if (rejectedContent) {
+		throw new ApplicationError("invalid-input", "Blob content does not match the request");
+	}
+
+	throw error;
 }

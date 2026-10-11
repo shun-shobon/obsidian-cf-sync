@@ -5,6 +5,7 @@ import { ApplicationError } from "../src/domain/errors";
 import { authenticate } from "../src/infra/access-auth";
 import type { Env } from "../src/infra/env";
 import { apiRoutes } from "../src/infra/http/api-routes";
+import { onError } from "../src/infra/http/responses";
 
 vi.mock("../src/infra/access-auth", () => ({ authenticate: vi.fn() }));
 
@@ -13,8 +14,7 @@ function setup() {
 	vi.mocked(authenticate).mockResolvedValue(undefined);
 
 	const account = {
-		device: vi.fn(async () => ({ ok: true, value: { id: "owner" } })),
-		vault: vi.fn(async () => ({ ok: true, value: { id: "vault" } })),
+		authorizeVaultAccess: vi.fn(async () => ({ ok: true, value: undefined })),
 		devices: vi.fn(async () => ({ ok: true, value: [] })),
 	};
 	const vault = {
@@ -26,6 +26,7 @@ function setup() {
 		VAULTS: { getByName: () => vault },
 	} as unknown as Env;
 	const app = new Hono<{ Bindings: Env }>().route("/api", apiRoutes);
+	app.onError(onError);
 	const vaultId = crypto.randomUUID();
 	const deviceId = crypto.randomUUID();
 	const call = (path: string, method = "GET") =>
@@ -44,8 +45,7 @@ describe("Public API routes", () => {
 
 		expect((await s.call(`/vaults/${s.vaultId}/snapshot`)).status).toBe(200);
 		expect(authenticate).toHaveBeenCalledOnce();
-		expect(s.account.device).toHaveBeenCalledExactlyOnceWith(s.deviceId);
-		expect(s.account.vault).toHaveBeenCalledExactlyOnceWith(s.vaultId);
+		expect(s.account.authorizeVaultAccess).toHaveBeenCalledExactlyOnceWith(s.deviceId, s.vaultId);
 		expect(s.vault.snapshot).toHaveBeenCalledExactlyOnceWith(s.vaultId, s.deviceId);
 	});
 

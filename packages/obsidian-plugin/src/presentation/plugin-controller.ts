@@ -1,4 +1,5 @@
 import { pathSchema } from "@cf-sync/protocol";
+import { AccountApi } from "@cf-sync/sync-core/infra/http/server-api";
 import type { SyncStatus } from "@cf-sync/sync-core/sync/domain/sync-state";
 import { SyncEngine } from "@cf-sync/sync-core/sync/usecase/sync-engine";
 import { Notice } from "obsidian";
@@ -8,10 +9,10 @@ import * as v from "valibot";
 import type { Settings } from "../domain/plugin-settings";
 import { t } from "../i18n";
 import { OAuthClient } from "../infra/auth/oauth-client";
-import { ApiClient } from "../infra/http/api-client";
+import { SyncApi, serverConnection } from "../infra/http/api-client";
 import { obsidianTransport } from "../infra/obsidian/http-transport";
 import { ObsidianVault } from "../infra/obsidian/vault-adapter";
-import { IndexedDbStore } from "../sync/infra/storage/indexed-db-store";
+import { IndexedDbStore } from "../infra/storage/indexed-db-store";
 import { confirmInitial } from "./confirm-initial";
 import { loginInBrowser } from "./login-modal";
 import { statusText } from "./status";
@@ -52,10 +53,13 @@ export class PluginController {
 		return this.auth;
 	}
 
-	api(): ApiClient {
-		return new ApiClient(
-			this.authentication(),
-			obsidianTransport,
+	account(): AccountApi {
+		return new AccountApi(serverConnection(this.authentication(), obsidianTransport));
+	}
+
+	api(): SyncApi {
+		return new SyncApi(
+			serverConnection(this.authentication(), obsidianTransport),
 			this.config.deviceId,
 			this.config.vaultId,
 		);
@@ -67,7 +71,7 @@ export class PluginController {
 
 	async finishLogin(params: Record<string, string>) {
 		await this.authentication().finish(params);
-		await this.api().registerDevice(this.config.deviceName);
+		await this.account().registerDevice(this.config.deviceId, this.config.deviceName);
 		void new Notice(t(($) => $.ui.loginSuccess));
 		await this.connect();
 	}
@@ -111,7 +115,7 @@ export class PluginController {
 	}
 
 	async revokeDevice(id: string) {
-		await this.api().revokeDevice(id);
+		await this.account().revokeDevice(id);
 
 		if (id === this.config.deviceId) {
 			await this.logout();

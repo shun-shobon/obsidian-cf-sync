@@ -77,16 +77,11 @@ it("runs config, vault list and init through the HTTP contract and records the b
 	expect(result).toEqual({ initialized: true, directory: f.root, serverUrl: origin, vaultId });
 	const binding: unknown = JSON.parse(await readFile(join(f.root, ".cf-sync/vault.json"), "utf8"));
 	const registration = f.requests.find((request) => request.method === "POST")!;
-	expect(await registration.clone().json()).toEqual({
-		id: registration.headers.get("X-Device-Id"),
-		name: expect.stringContaining("CLI"),
-	});
-	expect(binding).toEqual({
-		serverUrl: origin,
-		vaultId,
-		deviceId: registration.headers.get("X-Device-Id"),
-	});
+	const device = (await registration.clone().json()) as { id: string; name: string };
+	expect(device.name).toContain("CLI");
+	expect(binding).toEqual({ serverUrl: origin, vaultId, deviceId: device.id });
 	for (const request of f.requests) {
+		expect(request.headers.get("X-Device-Id")).toBeNull();
 		expect(request.headers.get("CF-Access-Client-Id")).toBe("service-id");
 		expect(request.headers.get("CF-Access-Client-Secret")).toBe("service-secret");
 		expect(request.headers.get("Authorization")).toBeNull();

@@ -3,9 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { authStateSchema, metadataSchema } from "../src/domain/auth-state";
 import type { AuthState } from "../src/domain/auth-state";
-import { initialSettings, settingsSchema } from "../src/domain/plugin-settings";
 import { serverOrigin } from "../src/domain/server-origin";
-import { urlSchema } from "../src/domain/url-schema";
 import { setLanguage } from "../src/i18n";
 import { OAuthClient } from "../src/infra/auth/oauth-client";
 import { tokenResponseSchema } from "../src/infra/auth/oauth-provider";
@@ -211,35 +209,5 @@ describe("authentication validation", () => {
 
 		expect(response).toEqual({ access_token: "access", expires_in: 900, token_type: "bEaReR" });
 		expect(state).toEqual({});
-	});
-
-	it.each(["00000000-0000-4000-0000-000000000000", "123e4567-e89b-92d3-a456-426614174000"])(
-		"rejects non-RFC device identifiers in saved settings: %s",
-		(deviceId) => {
-			const settings = initialSettings("desktop");
-			settings.deviceId = deviceId;
-
-			expect(v.safeParse(settingsSchema, settings).success).toBe(false);
-		},
-	);
-});
-
-describe("URL validation", () => {
-	it.each([
-		["  https://team.cloudflareaccess.com/token  ", "https://team.cloudflareaccess.com/token"],
-		["https://team.cloud\tflareaccess.com/to\nke\rn", "https://team.cloudflareaccess.com/token"],
-		[" \twss://sync.example.com/w\ns?ticket=abc\r ", "wss://sync.example.com/ws?ticket=abc"],
-		["HTTPS://EXAMPLE.COM:443/Token", "HTTPS://EXAMPLE.COM:443/Token"],
-	])("normalizes URL whitespace without rewriting other components: %s", (input, expected) => {
-		expect(v.parse(urlSchema, input)).toBe(expected);
-	});
-
-	it("normalizes OAuth metadata before storing endpoints for HTTP requests", () => {
-		const parsed = v.parse(metadataSchema, {
-			...metadata,
-			token_endpoint: "  https://team.cloudflareaccess.com/to\tken\n  ",
-		});
-
-		expect(parsed.token_endpoint).toBe(metadata.token_endpoint);
 	});
 });

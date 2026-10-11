@@ -54,7 +54,7 @@ export class Server {
 						(result) => onMessage({ type: "operation-result", result }),
 						(error: unknown) => {
 							if (error instanceof ConnectionError) {
-								onClose();
+								onClose(error);
 							} else {
 								onMessage({
 									type: "operation-error",

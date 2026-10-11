@@ -1,5 +1,5 @@
 import { lstat } from "node:fs/promises";
-import { join, resolve, sep } from "node:path";
+import { join } from "node:path";
 
 import { hasErrorCode } from "./error-code";
 import { metadataName } from "./vault-binding";
@@ -9,13 +9,7 @@ export async function resolveVaultPath(root: string, path: string): Promise<stri
 	const hasUnsafePart = parts.some((part) => !part || part === "." || part === "..");
 	const isMetadata = parts[0] === metadataName;
 
-	if (path.includes("\\") || hasUnsafePart || isMetadata) {
-		throw new Error(`Unsafe Vault path: ${path}`);
-	}
-
-	const full = resolve(root, path);
-
-	if (!full.startsWith(root + sep)) {
+	if (hasUnsafePart || isMetadata) {
 		throw new Error(`Unsafe Vault path: ${path}`);
 	}
 
@@ -36,5 +30,5 @@ export async function resolveVaultPath(root: string, path: string): Promise<stri
 		}
 	}
 
-	return full;
+	return current;
 }

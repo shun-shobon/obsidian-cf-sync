@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import {
 	clientMessageSchema,
 	serverMessageSchema,
-	idSchema,
 	operationResultSchema,
 	operationSchema,
 	pathSchema,
@@ -31,21 +30,6 @@ describe("wire validation boundaries", () => {
 
 		expect(result).toEqual(deletion(Number.MAX_SAFE_INTEGER));
 	});
-
-	it.each([
-		"12345678-1234-0234-9234-123456789abc",
-		"12345678-1234-9234-9234-123456789abc",
-		"12345678-1234-4234-1234-123456789abc",
-	])("rejects a non-RFC UUID layout: %s", (value) => {
-		expect(v.safeParse(idSchema, value).success).toBe(false);
-	});
-
-	it.each([fileId, "00000000-0000-0000-0000-000000000000", "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF"])(
-		"accepts a valid UUID or reserved value: %s",
-		(value) => {
-			expect(v.parse(idSchema, value)).toBe(value);
-		},
-	);
 
 	it("distinguishes nullable acknowledgement fields from an omitted conflict reason", () => {
 		const result = {

@@ -1,10 +1,9 @@
-import { idSchema, operationSchema, pathSchema } from "@cf-sync/protocol";
+import { idSchema, pathSchema } from "@cf-sync/protocol";
 import { Hono } from "hono";
 import * as v from "valibot";
 
 import type { Vault } from "../durable-objects/vault";
 import type { Env } from "../env";
-import { jsonStream } from "../rpc-json";
 import { unwrapRpcResult } from "../rpc-result";
 
 const exclusionsSchema = v.object({
@@ -28,9 +27,7 @@ vaultApiRoutes.use("*", async (c, next) => {
 	const vaultId = v.parse(idSchema, c.req.param("vaultId"));
 	const deviceId = v.parse(idSchema, c.req.header("X-Device-Id"));
 	const account = c.env.ACCOUNT.getByName("owner");
-	const [device, vault] = await Promise.all([account.device(deviceId), account.vault(vaultId)]);
-	unwrapRpcResult(device);
-	unwrapRpcResult(vault);
+	unwrapRpcResult(await account.authorizeVaultAccess(deviceId, vaultId));
 
 	c.set("vaultId", vaultId);
 	c.set("deviceId", deviceId);
@@ -48,13 +45,8 @@ vaultApiRoutes.get("/snapshot", async (c) => {
 });
 
 vaultApiRoutes.post("/operations", async (c) => {
-	const operation = v.parse(operationSchema, await c.req.json());
 	const vault = c.get("vault");
-	const result = await vault.applyOperation(
-		c.get("vaultId"),
-		c.get("deviceId"),
-		jsonStream(operation),
-	);
+	const result = await vault.applyOperation(c.get("vaultId"), c.get("deviceId"), c.req.raw.body);
 
 	return c.json(unwrapRpcResult(result));
 });

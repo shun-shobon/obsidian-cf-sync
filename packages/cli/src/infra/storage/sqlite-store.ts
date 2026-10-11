@@ -1,26 +1,14 @@
-import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
 import type { LocalState, StoredData, SyncStore } from "@cf-sync/sync-core";
 
 export class SqliteStore implements SyncStore {
 	private readonly db: DatabaseSync;
-	private readonly temporary: string | undefined;
 
 	constructor(path: string, dryRun = false) {
 		if (dryRun && existsSync(path)) {
-			this.temporary = mkdtempSync(join(tmpdir(), "cf-sync-plan-"));
-			const copy = join(this.temporary, "state.sqlite");
-
-			copyFileSync(path, copy);
-
-			if (existsSync(path + "-wal")) {
-				copyFileSync(path + "-wal", copy + "-wal");
-			}
-
-			this.db = new DatabaseSync(copy);
+			this.db = new DatabaseSync(path, { readOnly: true });
 			return;
 		}
 
@@ -90,9 +78,5 @@ export class SqliteStore implements SyncStore {
 
 	close(): void {
 		this.db.close();
-
-		if (this.temporary !== undefined) {
-			rmSync(this.temporary, { recursive: true });
-		}
 	}
 }

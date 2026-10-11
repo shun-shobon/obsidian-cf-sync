@@ -1,13 +1,14 @@
+import { AccountApi } from "@cf-sync/sync-core";
+
 import { resolveCredentials } from "../infra/config/credentials";
 import { resolveServerUrl } from "../infra/config/server-url";
-import { RestApi } from "../infra/http/api-client";
+import { serverConnection } from "../infra/http/server-connection";
 
 export async function listVaults(server: string | undefined, env: NodeJS.ProcessEnv) {
 	const serverUrl = resolveServerUrl(server, env);
 	const credentials = await resolveCredentials(serverUrl, env);
-	const api = new RestApi(serverUrl, credentials, crypto.randomUUID(), "");
-
-	const vaults = await api.vaults();
+	const account = new AccountApi(serverConnection(serverUrl, credentials));
+	const vaults = await account.vaults();
 
 	return { vaults };
 }

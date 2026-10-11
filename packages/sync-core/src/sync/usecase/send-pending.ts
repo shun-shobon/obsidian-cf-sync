@@ -1,7 +1,8 @@
 import { isExcluded } from "@cf-sync/protocol";
-import type { Operation, OperationResult } from "@cf-sync/protocol";
+import type { FileRecord, Operation, OperationResult } from "@cf-sync/protocol";
 
 import { t } from "../../i18n";
+import { blobKey } from "../domain/storage-keys";
 import type { LocalFile } from "../domain/sync-state";
 import type { RestApiPort } from "../ports/api-port";
 import type { StoredData } from "../ports/sync-store";
@@ -39,7 +40,7 @@ export class SendPending {
 		}
 	}
 
-	runText(isActive: () => boolean): Promise<void> {
+	private runText(isActive: () => boolean): Promise<void> {
 		this.textRun ??= this.runLane(true, isActive).finally(() => {
 			this.textRun = undefined;
 		});
@@ -93,9 +94,6 @@ export class SendPending {
 				if (!isActive()) {
 					return;
 				}
-				if (result.opId !== operation.opId) {
-					throw new Error(t(($) => $.errors.operationMismatch));
-				}
 				await this.serialize(async () => {
 					if (!isActive()) {
 						return;
@@ -103,7 +101,7 @@ export class SendPending {
 					await this.acknowledge(operation, result, local);
 					this.onAcknowledged(operation, result);
 					if ("content" in operation && operation.content.kind === "blob") {
-						await this.state.store.delete(`blob:${operation.content.blob.key}`);
+						await this.state.store.delete(blobKey(operation.content.blob.key));
 					}
 				});
 			} finally {
@@ -118,7 +116,7 @@ export class SendPending {
 		}
 
 		const blob = operation.content.blob;
-		const bytes = await this.state.store.get(`blob:${blob.key}`);
+		const bytes = await this.state.store.get(blobKey(blob.key));
 		if (!bytes) {
 			throw new Error(t(($) => $.errors.missingAttachment));
 		}
@@ -143,24 +141,17 @@ export class SendPending {
 		const state = this.state.data;
 		state.pending = state.pending.filter((entry) => entry.opId !== operation.opId);
 		state.attempted = state.attempted.filter((id) => id !== operation.opId);
-		if (result.conflict && result.file) {
-			const reasons: Record<NonNullable<OperationResult["conflictReason"]>, string> = {
-				"move-rejected": t(($) => $.sync.moveRejected),
-				"edit-preserved": t(($) => $.sync.editPreserved),
-				"content-preserved": t(($) => $.sync.contentPreserved),
-			};
-			let message: string = t(($) => $.sync.conflictPreserved);
 
-			if (result.conflictReason !== undefined) {
-				message = reasons[result.conflictReason];
-			}
+		const file = result.file;
+		let savedData: StoredData | undefined;
 
-			this.state.reportConflict(result.file, message);
+		if (file && result.conflict) {
+			this.state.reportConflict(file, conflictMessage(result));
 		}
 
-		let savedData: StoredData | undefined;
-		if (local && result.file) {
-			savedData = await this.updateBaseline(local, operation, result);
+		// A deletion conflict returns a separate preserved file, not a new identity for the deleted file.
+		if (file && local && operation.type !== "delete") {
+			savedData = await this.updateBaseline(local, operation, result, file);
 		}
 
 		await this.state.store.save(state, savedData);
@@ -170,22 +161,18 @@ export class SendPending {
 		local: LocalFile,
 		operation: Operation,
 		result: OperationResult,
+		file: FileRecord,
 	): Promise<StoredData | undefined> {
-		// A deletion conflict returns a separate preserved file, not a new identity for the deleted file.
-		if (!result.file || operation.type === "delete") {
-			return undefined;
-		}
-
 		// Keep local content and path until the entire outbox has drained.
-		rebasePending(this.state.data.pending, local, operation, result);
-		local.revision = result.file.revision;
-		local.pathRevision = result.file.pathRevision;
-		if (result.file.id === local.id) {
+		rebasePending(this.state.data.pending, local, operation, result, file);
+		local.revision = file.revision;
+		local.pathRevision = file.pathRevision;
+		if (file.id === local.id) {
 			return undefined;
 		}
 
 		const oldId = local.id;
-		local.id = result.file.id;
+		local.id = file.id;
 		for (const pending of this.state.data.pending) {
 			if (pending.fileId === oldId) {
 				pending.fileId = local.id;
@@ -194,4 +181,19 @@ export class SendPending {
 
 		return await this.documents.remap(oldId, local);
 	}
+}
+
+function conflictMessage(result: OperationResult): string {
+	// Results persisted by the server before conflictReason existed can still be replayed for a retried opId.
+	if (result.conflictReason === undefined) {
+		return t(($) => $.sync.conflictPreserved);
+	}
+
+	const reasons: Record<NonNullable<OperationResult["conflictReason"]>, string> = {
+		"move-rejected": t(($) => $.sync.moveRejected),
+		"edit-preserved": t(($) => $.sync.editPreserved),
+		"content-preserved": t(($) => $.sync.contentPreserved),
+	};
+
+	return reasons[result.conflictReason];
 }

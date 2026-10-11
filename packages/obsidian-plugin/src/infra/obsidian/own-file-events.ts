@@ -10,6 +10,8 @@ export type ExpectedEvent =
 	| { type: "delete"; file: TFile; path: string }
 	| { type: "rename"; file: TFile; path: string; oldPath: string };
 
+type ContentEvent = Extract<ExpectedEvent, { digest: string }>;
+
 export class OwnFileEvents {
 	private readonly expected = new Set<ExpectedEvent>();
 
@@ -36,7 +38,8 @@ export class OwnFileEvents {
 
 	private async consumeContentEvent(event: FileEvent): Promise<boolean> {
 		const candidates = [...this.expected].filter(
-			(entry) => entry.type === event.type && entry.path === event.path,
+			(entry): entry is ContentEvent =>
+				"digest" in entry && entry.type === event.type && entry.path === event.path,
 		);
 
 		if (candidates.length === 0) {
@@ -51,10 +54,6 @@ export class OwnFileEvents {
 		const hash = await digest(content);
 
 		for (const entry of candidates) {
-			if (!("digest" in entry)) {
-				continue;
-			}
-
 			if (entry.digest !== hash) {
 				continue;
 			}

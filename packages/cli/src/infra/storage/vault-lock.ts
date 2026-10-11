@@ -1,16 +1,7 @@
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { validateMetadataFiles } from "../fs/metadata-files";
-
-export async function lockVault(directory: string): Promise<() => void> {
-	await validateMetadataFiles(directory, [
-		"lock.sqlite",
-		"lock.sqlite-journal",
-		"lock.sqlite-wal",
-		"lock.sqlite-shm",
-	]);
-
+export function lockVault(directory: string): () => void {
 	const db = new DatabaseSync(join(directory, "lock.sqlite"));
 
 	try {

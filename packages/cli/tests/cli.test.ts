@@ -2,8 +2,10 @@ import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import * as v from "valibot";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { bindingSchema } from "../src/domain/connection";
 import { resolveCredentials } from "../src/infra/config/credentials";
 import { FileVault } from "../src/infra/fs/vault-adapter";
 import { SqliteStore } from "../src/infra/storage/sqlite-store";
@@ -74,11 +76,21 @@ describe("CLI persistence and filesystem", () => {
 
 	it("rejects a second lock and allows a later invocation", async () => {
 		const root = await temporary();
-		const release = await lockVault(root);
-		await expect(lockVault(root)).rejects.toThrow("Another process");
+		const release = lockVault(root);
+		expect(() => lockVault(root)).toThrow("Another process");
 		release();
-		const unlock = await lockVault(root);
+		const unlock = lockVault(root);
 		unlock();
+	});
+
+	it("normalizes the server URL when reading a Vault binding", () => {
+		const binding = v.parse(bindingSchema, {
+			serverUrl: "https://SYNC.example/",
+			vaultId: crypto.randomUUID(),
+			deviceId: crypto.randomUUID(),
+		});
+
+		expect(binding.serverUrl).toBe("https://sync.example");
 	});
 
 	it("persists document data across store instances", async () => {
@@ -91,13 +103,13 @@ describe("CLI persistence and filesystem", () => {
 		second.close();
 	});
 
-	it("isolates dry-run store writes from the persisted database", async () => {
+	it("opens the persisted database read-only for dry runs", async () => {
 		const path = join(await temporary(), "state.sqlite");
 		const source = new SqliteStore(path);
 		await source.put("document", new Uint8Array([1]));
 		const plan = new SqliteStore(path, true);
 		expect(await plan.get("document")).toEqual(new Uint8Array([1]));
-		await plan.put("document", new Uint8Array([2]));
+		expect(() => plan.put("document", new Uint8Array([2]))).toThrow("readonly");
 		plan.close();
 		expect(await source.get("document")).toEqual(new Uint8Array([1]));
 		source.close();

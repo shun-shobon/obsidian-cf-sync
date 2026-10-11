@@ -4,13 +4,8 @@ import { urlSchema } from "./url-schema";
 
 export const httpsUrlSchema = v.pipe(
 	urlSchema,
-	v.check((value) => {
-		if (!URL.canParse(value)) {
-			return false;
-		}
-
-		return new URL(value).protocol === "https:";
-	}),
+	// v.url()が失敗してもpipeは後続の検証を実行するため、ここでも解析できるか確かめる
+	v.check((value) => URL.canParse(value) && new URL(value).protocol === "https:"),
 );
 
 export const metadataSchema = v.object({

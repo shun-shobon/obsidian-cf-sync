@@ -3,7 +3,7 @@ import type { FileRecord } from "@cf-sync/protocol";
 
 import { t } from "../../i18n";
 import type { LocalState, SyncStatus } from "../domain/sync-state";
-import type { SyncStore } from "../ports/sync-store";
+import type { StoredData, SyncStore } from "../ports/sync-store";
 
 export class SyncState {
 	data: LocalState = {
@@ -73,6 +73,12 @@ export class SyncState {
 
 	persist(): Promise<void> {
 		return this.store.save(this.data);
+	}
+
+	async clearIncoming(data?: StoredData): Promise<void> {
+		// Keep the in-memory record until the store confirms, so a failed save can still be recovered.
+		await this.store.save({ ...this.data, incoming: null }, data);
+		this.data.incoming = null;
 	}
 
 	reportConflict(file: FileRecord, message: string): void {

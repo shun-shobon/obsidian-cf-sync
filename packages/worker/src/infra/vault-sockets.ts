@@ -4,6 +4,7 @@ import { toUint8Array } from "js-base64";
 import { decodeRelativePosition } from "yjs";
 
 import { ApplicationError } from "../domain/errors";
+import type { AlarmStorage } from "./vault-maintenance";
 
 interface Ticket {
 	deviceId: string;
@@ -22,9 +23,7 @@ export class VaultSockets {
 	constructor(private readonly state: DurableObjectState) {}
 
 	async assertDeviceActive(deviceId: string): Promise<void> {
-		const revoked = await this.state.storage.get<boolean>(`revoked:${deviceId}`);
-
-		if (revoked === true) {
+		if (await this.isRevoked(deviceId)) {
 			throw new ApplicationError("forbidden", "Device revoked");
 		}
 	}
@@ -68,9 +67,7 @@ export class VaultSockets {
 			throw new ApplicationError("unauthenticated", "Expired or consumed ticket");
 		}
 
-		const revoked = await this.state.storage.get<boolean>(`revoked:${ticket.deviceId}`);
-
-		if (revoked === true) {
+		if (await this.isRevoked(ticket.deviceId)) {
 			throw new ApplicationError("unauthenticated", "Expired or consumed ticket");
 		}
 
@@ -157,6 +154,18 @@ export class VaultSockets {
 				await this.state.storage.delete(key);
 			}
 		}
+	}
+
+	async ticketExpiries(storage: AlarmStorage): Promise<number[]> {
+		const tickets = await storage.list<Ticket>({ prefix: "ticket:" });
+
+		return [...tickets.values()].map((ticket) => ticket.expiresAt);
+	}
+
+	private async isRevoked(deviceId: string): Promise<boolean> {
+		const revoked = await this.state.storage.get<boolean>(`revoked:${deviceId}`);
+
+		return revoked === true;
 	}
 
 	private async ticketKey(secret: string): Promise<string> {

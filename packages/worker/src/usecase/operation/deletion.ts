@@ -2,8 +2,8 @@ import type { Operation } from "@cf-sync/protocol";
 import { toUint8Array } from "js-base64";
 
 import type { FileWrite, OperationChanges, StoredFile, VaultMeta } from "../../domain/vault-state";
+import type { VaultRepository } from "../../infra/vault-repository";
 import { allocateConflictPath } from "../../service/path-conflicts";
-import type { VaultStore } from "../ports";
 
 export async function applyDeletion(
 	operation: Extract<Operation, { type: "delete" }>,
@@ -11,7 +11,7 @@ export async function applyDeletion(
 	files: StoredFile[],
 	meta: VaultMeta,
 	changes: OperationChanges,
-	repository: VaultStore,
+	repository: VaultRepository,
 ): Promise<void> {
 	if (!current) {
 		return;
@@ -34,11 +34,10 @@ export async function applyDeletion(
 		pathRevision: meta.revision,
 		conflict: true,
 	};
-	const content = await repository.content(current);
 	const write: FileWrite = { stored: { ...current, file } };
 
-	if (content.kind === "text") {
-		write.update = toUint8Array(content.update);
+	if (!("blob" in current)) {
+		write.update = toUint8Array(await repository.textUpdate(current));
 	}
 
 	changes.writes.push(write);

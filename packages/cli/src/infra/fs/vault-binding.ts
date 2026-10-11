@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import * as v from "valibot";
@@ -19,14 +19,14 @@ async function validateDirectory(directory: string): Promise<void> {
 }
 
 export async function ensureMetadataDirectory(root: string): Promise<string> {
-	const directory = join(await realpath(root), metadataName);
+	const directory = join(root, metadataName);
 
 	await mkdir(directory, { mode: 0o700 }).catch((error: unknown) => {
 		if (!hasErrorCode(error, "EEXIST")) {
 			throw error;
 		}
 	});
-	await validateDirectory(directory);
+	await validateMetadata(directory);
 
 	return directory;
 }
@@ -36,9 +36,12 @@ export async function validateMetadata(metadata: string): Promise<void> {
 	await validateMetadataFiles(metadata, [
 		"vault.json",
 		"state.sqlite",
-		"lock.sqlite",
 		"state.sqlite-wal",
 		"state.sqlite-shm",
+		"lock.sqlite",
+		"lock.sqlite-journal",
+		"lock.sqlite-wal",
+		"lock.sqlite-shm",
 	]);
 }
 

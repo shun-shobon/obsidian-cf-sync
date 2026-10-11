@@ -76,6 +76,10 @@ export class FileVault implements VaultPort {
 	}
 }
 
+export async function assertSupportedFiles(root: string): Promise<void> {
+	await listFiles(root, "");
+}
+
 async function listFiles(directory: string, prefix: string): Promise<string[]> {
 	const paths: string[] = [];
 
