@@ -1,7 +1,6 @@
-import { defineConfig } from "oxfmt";
+import { shun_shobon } from "@shun-shobon/oxfmt-config";
 
-export default defineConfig({
-  ignorePatterns: ["**/dist/**", "**/.wrangler/**", "pnpm-lock.yaml", "mise.lock"],
-  sortImports: { groups: ["builtin", "external", "internal", "parent", "sibling", "index"] },
-  sortPackageJson: { sortScripts: true },
-});
+export default shun_shobon(
+	{},
+	{ ignorePatterns: ["**/dist/**", "**/.wrangler/**", "pnpm-lock.yaml", "mise.lock"] },
+);

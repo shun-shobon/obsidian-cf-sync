@@ -6,12 +6,12 @@ import type { SyncStore } from "../ports/sync-store";
 import type { VaultPort } from "../ports/vault-port";
 
 export interface SyncOptions {
-  deviceId: string;
-  deviceName: string;
-  vault: VaultPort;
-  api: ApiPort;
-  store: SyncStore;
-  onStatus(status: SyncStatus): void;
-  onConflict(file: FileRecord, message: string): void;
-  confirmInitial(paths: string[]): Promise<boolean>;
+	deviceId: string;
+	deviceName: string;
+	vault: VaultPort;
+	api: ApiPort;
+	store: SyncStore;
+	onStatus(status: SyncStatus): void;
+	onConflict(file: FileRecord, message: string): void;
+	confirmInitial(paths: string[]): Promise<boolean>;
 }

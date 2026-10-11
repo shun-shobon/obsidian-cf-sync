@@ -1,187 +1,189 @@
 import { digest } from "@cf-sync/protocol";
 import type { VaultPort } from "@cf-sync/sync-core/sync/ports/vault-port";
-import { TFile, type FileManager, type Vault } from "obsidian";
+import { TFile } from "obsidian";
+import type { FileManager, Vault } from "obsidian";
 
 import { t } from "../../i18n";
-
-import { OwnFileEvents, type ExpectedEvent, type FileEvent } from "./own-file-events";
+import { OwnFileEvents } from "./own-file-events";
+import type { ExpectedEvent, FileEvent } from "./own-file-events";
 
 export class ObsidianVault implements VaultPort {
-  private readonly events: OwnFileEvents;
+	private readonly events: OwnFileEvents;
 
-  constructor(
-    private readonly vault: Vault,
-    private readonly fileManager: FileManager,
-  ) {
-    this.events = new OwnFileEvents(vault);
-  }
+	constructor(
+		private readonly vault: Vault,
+		private readonly fileManager: FileManager,
+	) {
+		this.events = new OwnFileEvents(vault);
+	}
 
-  isOwnEvent(event: FileEvent): Promise<boolean> {
-    return this.events.isOwnEvent(event);
-  }
+	isOwnEvent(event: FileEvent): Promise<boolean> {
+		return this.events.isOwnEvent(event);
+	}
 
-  async list() {
-    return this.vault.getFiles().map((file) => file.path);
-  }
+	list() {
+		return Promise.resolve(this.vault.getFiles().map((file) => file.path));
+	}
 
-  async read(path: string) {
-    const file = this.vault.getAbstractFileByPath(path);
+	async read(path: string) {
+		const file = this.vault.getAbstractFileByPath(path);
 
-    if (!(file instanceof TFile)) {
-      throw new Error(t(($) => $.errors.fileMissing, { path: path }));
-    }
+		if (!(file instanceof TFile)) {
+			throw new Error(t(($) => $.errors.fileMissing, { path: path }));
+		}
 
-    return new Uint8Array(await this.vault.readBinary(file));
-  }
+		return new Uint8Array(await this.vault.readBinary(file));
+	}
 
-  private async parents(path: string) {
-    const parts = path.split("/");
-    parts.pop();
-    const parentParts: string[] = [];
+	private async parents(path: string) {
+		const parts = path.split("/");
+		parts.pop();
+		const parentParts: string[] = [];
 
-    for (const part of parts) {
-      parentParts.push(part);
-      const parentPath = parentParts.join("/");
+		for (const part of parts) {
+			parentParts.push(part);
+			const parentPath = parentParts.join("/");
 
-      if (!this.vault.getAbstractFileByPath(parentPath)) {
-        await this.vault.createFolder(parentPath);
-      }
-    }
-  }
+			if (!this.vault.getAbstractFileByPath(parentPath)) {
+				await this.vault.createFolder(parentPath);
+			}
+		}
+	}
 
-  async write(path: string, bytes: Uint8Array) {
-    await this.parents(path);
-    const existing = this.vault.getAbstractFileByPath(path);
+	async write(path: string, bytes: Uint8Array) {
+		await this.parents(path);
+		const existing = this.vault.getAbstractFileByPath(path);
 
-    if (existing && !(existing instanceof TFile)) {
-      throw new Error(t(($) => $.errors.folderCollision, { path: path }));
-    }
+		if (existing && !(existing instanceof TFile)) {
+			throw new Error(t(($) => $.errors.folderCollision, { path: path }));
+		}
 
-    const buffer = new Uint8Array(bytes).buffer;
-    const hash = await digest(bytes);
+		const buffer = new Uint8Array(bytes).buffer;
+		const hash = await digest(bytes);
 
-    if (existing) {
-      await this.events.run({ type: "modify", path, digest: hash }, () =>
-        this.vault.modifyBinary(existing, buffer),
-      );
-    } else {
-      await this.events.run({ type: "create", path, digest: hash }, () =>
-        this.vault.createBinary(path, buffer),
-      );
-    }
-  }
+		if (existing) {
+			await this.events.run({ type: "modify", path, digest: hash }, () =>
+				this.vault.modifyBinary(existing, buffer),
+			);
+		} else {
+			await this.events.run({ type: "create", path, digest: hash }, () =>
+				this.vault.createBinary(path, buffer),
+			);
+		}
+	}
 
-  async writeIfUnchanged(
-    path: string,
-    expected: Uint8Array | undefined,
-    bytes: Uint8Array,
-  ): Promise<boolean> {
-    await this.parents(path);
-    const file = this.vault.getAbstractFileByPath(path);
+	async writeIfUnchanged(
+		path: string,
+		expected: Uint8Array | undefined,
+		bytes: Uint8Array,
+	): Promise<boolean> {
+		await this.parents(path);
+		const file = this.vault.getAbstractFileByPath(path);
 
-    if (expected === undefined) {
-      if (file) {
-        return false;
-      }
+		if (expected === undefined) {
+			if (file) {
+				return false;
+			}
 
-      await this.events.run({ type: "create", path, digest: await digest(bytes) }, () =>
-        this.vault.createBinary(path, new Uint8Array(bytes).buffer),
-      );
+			await this.events.run({ type: "create", path, digest: await digest(bytes) }, () =>
+				this.vault.createBinary(path, new Uint8Array(bytes).buffer),
+			);
 
-      return true;
-    }
+			return true;
+		}
 
-    if (!(file instanceof TFile)) {
-      return false;
-    }
+		if (!(file instanceof TFile)) {
+			return false;
+		}
 
-    const event: ExpectedEvent = { type: "modify", path, digest: await digest(bytes) };
+		const event: ExpectedEvent = { type: "modify", path, digest: await digest(bytes) };
 
-    if (path.toLowerCase().endsWith(".md")) {
-      return this.writeTextIfUnchanged(file, event, expected, bytes);
-    }
+		if (path.toLowerCase().endsWith(".md")) {
+			return await this.writeTextIfUnchanged(file, event, expected, bytes);
+		}
 
-    return this.writeBinaryIfUnchanged(file, event, expected, bytes);
-  }
+		return await this.writeBinaryIfUnchanged(file, event, expected, bytes);
+	}
 
-  private async writeTextIfUnchanged(
-    file: TFile,
-    event: ExpectedEvent,
-    expected: Uint8Array,
-    bytes: Uint8Array,
-  ): Promise<boolean> {
-    const decoder = new TextDecoder("utf-8", { fatal: true });
-    const before = decoder.decode(expected);
-    const after = decoder.decode(bytes);
-    let changed = false;
-    await this.events.run(event, () =>
-      this.vault.process(file, (current) => {
-        if (current !== before) {
-          return current;
-        }
+	private async writeTextIfUnchanged(
+		file: TFile,
+		event: ExpectedEvent,
+		expected: Uint8Array,
+		bytes: Uint8Array,
+	): Promise<boolean> {
+		const decoder = new TextDecoder("utf-8", { fatal: true });
+		const before = decoder.decode(expected);
+		const after = decoder.decode(bytes);
+		// A mutable field: TypeScript would narrow a `let` to `false` across the callback.
+		const result = { changed: false };
+		await this.events.run(event, () =>
+			this.vault.process(file, (current) => {
+				if (current !== before) {
+					return current;
+				}
 
-        changed = true;
+				result.changed = true;
 
-        return after;
-      }),
-    );
+				return after;
+			}),
+		);
 
-    if (!changed) {
-      this.events.discard(event);
-    }
+		if (!result.changed) {
+			this.events.discard(event);
+		}
 
-    return changed;
-  }
+		return result.changed;
+	}
 
-  private async writeBinaryIfUnchanged(
-    file: TFile,
-    event: ExpectedEvent,
-    expected: Uint8Array,
-    bytes: Uint8Array,
-  ): Promise<boolean> {
-    // Vault exposes no atomic binary compare-and-write API. Keep this check next
-    // to modifyBinary; an external writer can still race between these two calls.
-    const current = new Uint8Array(await this.vault.readBinary(file));
+	private async writeBinaryIfUnchanged(
+		file: TFile,
+		event: ExpectedEvent,
+		expected: Uint8Array,
+		bytes: Uint8Array,
+	): Promise<boolean> {
+		// Vault exposes no atomic binary compare-and-write API. Keep this check next
+		// to modifyBinary; an external writer can still race between these two calls.
+		const current = new Uint8Array(await this.vault.readBinary(file));
 
-    if (current.length !== expected.length) {
-      return false;
-    }
+		if (current.length !== expected.length) {
+			return false;
+		}
 
-    const contentChanged = current.some((byte, index) => byte !== expected[index]);
+		const contentChanged = current.some((byte, index) => byte !== expected[index]);
 
-    if (contentChanged) {
-      return false;
-    }
+		if (contentChanged) {
+			return false;
+		}
 
-    await this.events.run(event, () => this.vault.modifyBinary(file, new Uint8Array(bytes).buffer));
+		await this.events.run(event, () => this.vault.modifyBinary(file, new Uint8Array(bytes).buffer));
 
-    return true;
-  }
+		return true;
+	}
 
-  async remove(path: string) {
-    const file = this.vault.getAbstractFileByPath(path);
+	async remove(path: string) {
+		const file = this.vault.getAbstractFileByPath(path);
 
-    if (!file) {
-      return;
-    }
+		if (!file) {
+			return;
+		}
 
-    if (!(file instanceof TFile)) {
-      throw new Error(t(($) => $.errors.notFile, { path: path }));
-    }
+		if (!(file instanceof TFile)) {
+			throw new Error(t(($) => $.errors.notFile, { path: path }));
+		}
 
-    await this.events.run({ type: "delete", file, path }, () => this.fileManager.trashFile(file));
-  }
+		await this.events.run({ type: "delete", file, path }, () => this.fileManager.trashFile(file));
+	}
 
-  async rename(oldPath: string, newPath: string) {
-    const file = this.vault.getAbstractFileByPath(oldPath);
+	async rename(oldPath: string, newPath: string) {
+		const file = this.vault.getAbstractFileByPath(oldPath);
 
-    if (!(file instanceof TFile)) {
-      throw new Error(t(($) => $.errors.fileMissing, { path: oldPath }));
-    }
+		if (!(file instanceof TFile)) {
+			throw new Error(t(($) => $.errors.fileMissing, { path: oldPath }));
+		}
 
-    await this.parents(newPath);
-    await this.events.run({ type: "rename", file, oldPath, path: newPath }, () =>
-      this.vault.rename(file, newPath),
-    );
-  }
+		await this.parents(newPath);
+		await this.events.run({ type: "rename", file, oldPath, path: newPath }, () =>
+			this.vault.rename(file, newPath),
+		);
+	}
 }

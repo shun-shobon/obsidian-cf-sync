@@ -1,4 +1,5 @@
-import { serverMessageSchema, type ServerMessage } from "@cf-sync/protocol";
+import { serverMessageSchema } from "@cf-sync/protocol";
+import type { ServerMessage } from "@cf-sync/protocol";
 import { ConnectionError } from "@cf-sync/sync-core/domain/connection-error";
 import type { SyncSocket } from "@cf-sync/sync-core/sync/ports/api-port";
 import * as v from "valibot";
@@ -6,85 +7,99 @@ import * as v from "valibot";
 import { t } from "../../i18n";
 
 interface ConnectionTicket {
-  url: string;
-  expiresAt: number;
+	url: string;
+	expiresAt: number;
 }
 
 export async function connectSocket(
-  ticket: ConnectionTicket,
-  origin: string,
-  onMessage: (message: ServerMessage) => void,
-  onClose: () => void,
+	ticket: ConnectionTicket,
+	origin: string,
+	onMessage: (message: ServerMessage) => void,
+	onClose: () => void,
 ): Promise<SyncSocket> {
-  const url = new URL(ticket.url);
-  const isTrustedUrl = url.protocol === "wss:" && url.host === new URL(origin).host;
-  const isExpired = ticket.expiresAt <= Date.now();
+	const url = new URL(ticket.url);
+	const isTrustedUrl = url.protocol === "wss:" && url.host === new URL(origin).host;
+	const isExpired = ticket.expiresAt <= Date.now();
 
-  if (!isTrustedUrl || isExpired) {
-    throw new Error(t(($) => $.errors.invalidConnectionUrl));
-  }
+	if (!isTrustedUrl || isExpired) {
+		throw new Error(t(($) => $.errors.invalidConnectionUrl));
+	}
 
-  const socket = new WebSocket(url);
-  receiveMessages(socket, onMessage);
-  await waitUntilOpen(socket);
-  socket.onclose = (event) => {
-    if (event.code === 1008 || event.code === 1009) {
-      onMessage({
-        type: "error",
-        message: t(($) => $.errors.websocketRejected, { reason: event.reason }),
-      });
-      return;
-    }
-    onClose();
-  };
+	const socket = new WebSocket(url);
+	receiveMessages(socket, onMessage);
+	await waitUntilOpen(socket);
 
-  return {
-    send: (message) => {
-      if (socket.readyState !== WebSocket.OPEN) {
-        throw new ConnectionError(t(($) => $.errors.websocketDisconnected));
-      }
-      socket.send(JSON.stringify(message));
-    },
-    close: () => {
-      socket.onclose = null;
-      socket.close();
-    },
-  };
+	const closeListener = new AbortController();
+	socket.addEventListener(
+		"close",
+		(event) => {
+			if (event.code === 1008 || event.code === 1009) {
+				onMessage({
+					type: "error",
+					message: t(($) => $.errors.websocketRejected, { reason: event.reason }),
+				});
+				return;
+			}
+			onClose();
+		},
+		{ signal: closeListener.signal },
+	);
+
+	return {
+		send: (message) => {
+			if (socket.readyState !== WebSocket.OPEN) {
+				throw new ConnectionError(t(($) => $.errors.websocketDisconnected));
+			}
+			socket.send(JSON.stringify(message));
+		},
+		close: () => {
+			closeListener.abort();
+			socket.close();
+		},
+	};
 }
 
 function receiveMessages(socket: WebSocket, onMessage: (message: ServerMessage) => void) {
-  socket.onmessage = (event) => {
-    try {
-      const parsed = v.safeParse(serverMessageSchema, JSON.parse(String(event.data)));
+	socket.addEventListener("message", (event) => {
+		try {
+			const parsed = v.safeParse(serverMessageSchema, JSON.parse(String(event.data)));
 
-      if (parsed.success) {
-        onMessage(parsed.output);
-      } else {
-        socket.close(1002, "Invalid message");
-      }
-    } catch {
-      socket.close(1002, "Invalid message");
-    }
-  };
+			if (parsed.success) {
+				onMessage(parsed.output);
+			} else {
+				socket.close(1002, "Invalid message");
+			}
+		} catch {
+			socket.close(1002, "Invalid message");
+		}
+	});
 }
 
 async function waitUntilOpen(socket: WebSocket) {
-  await new Promise<void>((resolve, reject) => {
-    const timer = window.setTimeout(() => {
-      socket.close();
-      reject(new ConnectionError(t(($) => $.errors.websocketTimeout)));
-    }, 15_000);
-    socket.onopen = () => {
-      window.clearTimeout(timer);
-      resolve();
-    };
-    socket.onerror = () => {
-      window.clearTimeout(timer);
-      reject(new ConnectionError(t(($) => $.errors.websocketFailed)));
-    };
-    socket.onclose = () => {
-      window.clearTimeout(timer);
-      reject(new ConnectionError(t(($) => $.errors.websocketClosed)));
-    };
-  });
+	const listeners = new AbortController();
+	const { signal } = listeners;
+
+	try {
+		await new Promise<void>((resolve, reject) => {
+			const timer = window.setTimeout(() => {
+				socket.close();
+				reject(new ConnectionError(t(($) => $.errors.websocketTimeout)));
+			}, 15_000);
+			signal.addEventListener("abort", () => window.clearTimeout(timer));
+
+			socket.addEventListener("open", () => resolve(), { signal });
+			socket.addEventListener(
+				"error",
+				() => reject(new ConnectionError(t(($) => $.errors.websocketFailed))),
+				{ signal },
+			);
+			socket.addEventListener(
+				"close",
+				() => reject(new ConnectionError(t(($) => $.errors.websocketClosed))),
+				{ signal },
+			);
+		});
+	} finally {
+		listeners.abort();
+	}
 }

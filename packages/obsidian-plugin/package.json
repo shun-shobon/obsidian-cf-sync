@@ -1,35 +1,35 @@
 {
-  "name": "@cf-sync/obsidian-plugin",
-  "version": "0.3.1",
-  "private": true,
-  "license": "MIT",
-  "type": "module",
-  "scripts": {
-    "build": "tsdown && node scripts/package.mjs",
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@cf-sync/protocol": "workspace:*",
-    "@cf-sync/sync-core": "workspace:*",
-    "auth-header": "1.0.0",
-    "i18next": "catalog:",
-    "js-base64": "catalog:",
-    "lib0": "catalog:",
-    "oauth4webapi": "3.8.8",
-    "valibot": "catalog:",
-    "y-codemirror.next": "0.3.6",
-    "y-protocols": "1.0.7",
-    "yjs": "catalog:"
-  },
-  "devDependencies": {
-    "@codemirror/commands": "6.11.0",
-    "@codemirror/state": "6.5.0",
-    "@codemirror/view": "6.38.6",
-    "@types/auth-header": "1.0.6",
-    "fake-indexeddb": "catalog:",
-    "happy-dom": "20.14.0",
-    "obsidian": "1.13.1",
-    "tsdown": "0.23.0"
-  }
+	"name": "@cf-sync/obsidian-plugin",
+	"version": "0.3.1",
+	"private": true,
+	"license": "MIT",
+	"type": "module",
+	"scripts": {
+		"build": "tsdown && node scripts/package.mjs",
+		"test": "vitest run",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@cf-sync/protocol": "workspace:*",
+		"@cf-sync/sync-core": "workspace:*",
+		"auth-header": "1.0.0",
+		"i18next": "catalog:",
+		"js-base64": "catalog:",
+		"lib0": "catalog:",
+		"oauth4webapi": "3.8.8",
+		"valibot": "catalog:",
+		"y-codemirror.next": "0.3.6",
+		"y-protocols": "1.0.7",
+		"yjs": "catalog:"
+	},
+	"devDependencies": {
+		"@codemirror/commands": "6.11.0",
+		"@codemirror/state": "6.5.0",
+		"@codemirror/view": "6.38.6",
+		"@types/auth-header": "1.0.6",
+		"fake-indexeddb": "catalog:",
+		"happy-dom": "20.14.0",
+		"obsidian": "1.13.1",
+		"tsdown": "0.23.0"
+	}
 }

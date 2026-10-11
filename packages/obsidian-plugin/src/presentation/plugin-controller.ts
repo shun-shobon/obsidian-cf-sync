@@ -1,7 +1,8 @@
 import { pathSchema } from "@cf-sync/protocol";
 import type { SyncStatus } from "@cf-sync/sync-core/sync/domain/sync-state";
 import { SyncEngine } from "@cf-sync/sync-core/sync/usecase/sync-engine";
-import { Notice, type App } from "obsidian";
+import { Notice } from "obsidian";
+import type { App } from "obsidian";
 import * as v from "valibot";
 
 import type { Settings } from "../domain/plugin-settings";
@@ -11,212 +12,209 @@ import { ApiClient } from "../infra/http/api-client";
 import { obsidianTransport } from "../infra/obsidian/http-transport";
 import { ObsidianVault } from "../infra/obsidian/vault-adapter";
 import { IndexedDbStore } from "../sync/infra/storage/indexed-db-store";
-
 import { confirmInitial } from "./confirm-initial";
 import { loginInBrowser } from "./login-modal";
 import { statusText } from "./status";
 
 export class PluginController {
-  engine?: SyncEngine;
-  status?: SyncStatus;
-  readonly vault: ObsidianVault;
-  private auth?: OAuthClient;
-  private saveQueue = Promise.resolve();
-  private setupQueue = Promise.resolve();
-  private stopped = false;
+	engine?: SyncEngine;
+	status?: SyncStatus;
+	readonly vault: ObsidianVault;
+	private auth?: OAuthClient;
+	private saveQueue = Promise.resolve();
+	private setupQueue = Promise.resolve();
+	private stopped = false;
 
-  constructor(
-    private readonly app: App,
-    readonly config: Settings,
-    private readonly save: (settings: Settings) => Promise<void>,
-    private readonly displayStatus: (message: string) => void,
-  ) {
-    this.vault = new ObsidianVault(app.vault, app.fileManager);
-  }
+	constructor(
+		private readonly app: App,
+		readonly config: Settings,
+		private readonly save: (settings: Settings) => Promise<void>,
+		private readonly displayStatus: (message: string) => void,
+	) {
+		this.vault = new ObsidianVault(app.vault, app.fileManager);
+	}
 
-  persist(): Promise<void> {
-    const data = structuredClone(this.config);
-    this.saveQueue = this.saveQueue.then(
-      () => this.save(data),
-      () => this.save(data),
-    );
+	persist(): Promise<void> {
+		const data = structuredClone(this.config);
+		this.saveQueue = this.saveQueue.then(
+			() => this.save(data),
+			() => this.save(data),
+		);
 
-    return this.saveQueue;
-  }
+		return this.saveQueue;
+	}
 
-  authentication(): OAuthClient {
-    if (!this.auth) {
-      this.auth = new OAuthClient(this.config.server, this.config.auth, obsidianTransport, () =>
-        this.persist(),
-      );
-    }
+	authentication(): OAuthClient {
+		this.auth ??= new OAuthClient(this.config.server, this.config.auth, obsidianTransport, () =>
+			this.persist(),
+		);
 
-    return this.auth;
-  }
+		return this.auth;
+	}
 
-  api(): ApiClient {
-    return new ApiClient(
-      this.authentication(),
-      obsidianTransport,
-      this.config.deviceId,
-      this.config.vaultId,
-    );
-  }
+	api(): ApiClient {
+		return new ApiClient(
+			this.authentication(),
+			obsidianTransport,
+			this.config.deviceId,
+			this.config.vaultId,
+		);
+	}
 
-  login() {
-    return loginInBrowser(this.app, () => this.authentication().begin());
-  }
+	login() {
+		return loginInBrowser(this.app, () => this.authentication().begin());
+	}
 
-  async finishLogin(params: Record<string, string>) {
-    await this.authentication().finish(params);
-    await this.api().registerDevice(this.config.deviceName);
-    new Notice(t(($) => $.ui.loginSuccess));
-    await this.connect();
-  }
+	async finishLogin(params: Record<string, string>) {
+		await this.authentication().finish(params);
+		await this.api().registerDevice(this.config.deviceName);
+		void new Notice(t(($) => $.ui.loginSuccess));
+		await this.connect();
+	}
 
-  async logout() {
-    this.engine?.pause();
-    await this.authentication().logout();
-    this.displayStatus(t(($) => $.ui.loginRequired));
-  }
+	async logout() {
+		this.engine?.pause();
+		await this.authentication().logout();
+		this.displayStatus(t(($) => $.ui.loginRequired));
+	}
 
-  async changeServer(value: string) {
-    if (this.config.server === value) {
-      return;
-    }
+	async changeServer(value: string) {
+		if (this.config.server === value) {
+			return;
+		}
 
-    if (this.config.vaultId) {
-      throw new Error(t(($) => $.ui.serverAlreadySelected));
-    }
+		if (this.config.vaultId) {
+			throw new Error(t(($) => $.ui.serverAlreadySelected));
+		}
 
-    await this.auth?.logout();
-    this.auth = undefined;
-    this.config.auth = {};
-    this.config.server = value;
-    await this.persist();
-  }
+		await this.auth?.logout();
+		this.auth = undefined;
+		this.config.auth = {};
+		this.config.server = value;
+		await this.persist();
+	}
 
-  async selectVault(id: string) {
-    if (!id) {
-      return;
-    }
+	async selectVault(id: string) {
+		if (!id) {
+			return;
+		}
 
-    this.config.vaultId = id;
-    await this.persist();
-    await this.connect();
-  }
+		this.config.vaultId = id;
+		await this.persist();
+		await this.connect();
+	}
 
-  async setDeviceName(name: string) {
-    this.config.deviceName = name;
-    this.engine?.setDeviceName(name);
-    await this.persist();
-  }
+	async setDeviceName(name: string) {
+		this.config.deviceName = name;
+		this.engine?.setDeviceName(name);
+		await this.persist();
+	}
 
-  async revokeDevice(id: string) {
-    await this.api().revokeDevice(id);
+	async revokeDevice(id: string) {
+		await this.api().revokeDevice(id);
 
-    if (id === this.config.deviceId) {
-      await this.logout();
-    }
-  }
+		if (id === this.config.deviceId) {
+			await this.logout();
+		}
+	}
 
-  async saveExclusions(paths: string[]) {
-    const exclusions = v.parse(v.array(pathSchema), paths);
-    await this.api().exclusions(exclusions);
-    await this.engine?.syncNow();
-  }
+	async saveExclusions(paths: string[]) {
+		const exclusions = v.parse(v.array(pathSchema), paths);
+		await this.api().exclusions(exclusions);
+		await this.engine?.syncNow();
+	}
 
-  async setPaused(paused: boolean) {
-    this.config.paused = paused;
-    await this.persist();
+	async setPaused(paused: boolean) {
+		this.config.paused = paused;
+		await this.persist();
 
-    if (paused) {
-      this.engine?.pause();
-    } else if (this.engine) {
-      await this.engine.resume();
-    } else {
-      await this.connect();
-    }
-  }
+		if (paused) {
+			this.engine?.pause();
+		} else if (this.engine) {
+			await this.engine.resume();
+		} else {
+			await this.connect();
+		}
+	}
 
-  connect(): Promise<void> {
-    const setup = () => this.startEngine();
-    this.setupQueue = this.setupQueue.then(setup, setup);
+	connect(): Promise<void> {
+		const setup = () => this.startEngine();
+		this.setupQueue = this.setupQueue.then(setup, setup);
 
-    return this.setupQueue;
-  }
+		return this.setupQueue;
+	}
 
-  private async startEngine() {
-    if (this.stopped) {
-      return;
-    }
+	private async startEngine() {
+		if (this.stopped) {
+			return;
+		}
 
-    const hasConnection = Boolean(this.config.server && this.config.vaultId);
+		const hasConnection = Boolean(this.config.server && this.config.vaultId);
 
-    if (!hasConnection) {
-      return;
-    }
+		if (!hasConnection) {
+			return;
+		}
 
-    await this.engine?.dispose();
-    this.engine = this.createEngine();
+		await this.engine?.dispose();
+		this.engine = this.createEngine();
 
-    if (this.config.paused) {
-      this.engine.pause();
-    }
+		if (this.config.paused) {
+			this.engine.pause();
+		}
 
-    await this.engine.start();
-    this.app.workspace.updateOptions();
-  }
+		await this.engine.start();
+		this.app.workspace.updateOptions();
+	}
 
-  private createEngine(): SyncEngine {
-    return new SyncEngine({
-      deviceId: this.config.deviceId,
-      deviceName: this.config.deviceName,
-      vault: this.vault,
-      api: this.api(),
-      store: new IndexedDbStore(
-        `cf-sync:${this.config.localId}:${this.config.server}:${this.config.vaultId}`,
-      ),
-      onStatus: (status) => {
-        this.status = status;
-        this.displayStatus(statusText(status));
-      },
-      onConflict: (file, message) => {
-        new Notice(`${message}\n${file.path}`, 10000);
-      },
-      confirmInitial: (paths) => confirmInitial(this.app, paths),
-    });
-  }
+	private createEngine(): SyncEngine {
+		return new SyncEngine({
+			deviceId: this.config.deviceId,
+			deviceName: this.config.deviceName,
+			vault: this.vault,
+			api: this.api(),
+			store: new IndexedDbStore(
+				`cf-sync:${this.config.localId}:${this.config.server}:${this.config.vaultId}`,
+			),
+			onStatus: (status) => {
+				this.status = status;
+				this.displayStatus(statusText(status));
+			},
+			onConflict: (file, message) => {
+				void new Notice(`${message}\n${file.path}`, 10000);
+			},
+			confirmInitial: (paths) => confirmInitial(this.app, paths),
+		});
+	}
 
-  async syncNow() {
-    if (!this.engine) {
-      await this.connect();
-    }
+	async syncNow() {
+		if (!this.engine) {
+			await this.connect();
+		}
 
-    await this.engine?.refresh();
-  }
+		await this.engine?.refresh();
+	}
 
-  async run(action: () => Promise<void>) {
-    try {
-      await action();
-    } catch (error) {
-      this.report(error);
-    }
-  }
+	async run(action: () => Promise<void>) {
+		try {
+			await action();
+		} catch (error) {
+			this.report(error);
+		}
+	}
 
-  report(error: unknown) {
-    let message = String(error);
+	report(error: unknown) {
+		let message = String(error);
 
-    if (error instanceof Error) {
-      message = error.message;
-    }
+		if (error instanceof Error) {
+			message = error.message;
+		}
 
-    new Notice(`CF Sync: ${message}`, 10000);
-    this.displayStatus(message);
-  }
+		void new Notice(`CF Sync: ${message}`, 10000);
+		this.displayStatus(message);
+	}
 
-  dispose() {
-    this.stopped = true;
-    void this.engine?.dispose();
-  }
+	dispose() {
+		this.stopped = true;
+		void this.engine?.dispose();
+	}
 }

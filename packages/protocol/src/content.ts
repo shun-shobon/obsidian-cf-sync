@@ -4,19 +4,19 @@ import { idSchema } from "./identity";
 import { nonNegativeIntegerSchema } from "./numbers";
 
 export const blobSchema = v.object({
-  key: idSchema,
-  size: nonNegativeIntegerSchema,
-  digest: v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/)),
+	key: idSchema,
+	size: nonNegativeIntegerSchema,
+	digest: v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/u)),
 });
 
 const textContentSchema = v.object({
-  kind: v.literal("text"),
-  update: v.string(),
+	kind: v.literal("text"),
+	update: v.string(),
 });
 
 const blobContentSchema = v.object({
-  kind: v.literal("blob"),
-  blob: blobSchema,
+	kind: v.literal("blob"),
+	blob: blobSchema,
 });
 
 export const contentSchema = v.variant("kind", [textContentSchema, blobContentSchema]);
