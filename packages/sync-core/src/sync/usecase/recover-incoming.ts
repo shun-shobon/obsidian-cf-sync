@@ -8,144 +8,143 @@ import type { StoredData } from "../ports/sync-store";
 import type { VaultPort } from "../ports/vault-port";
 import type { Documents } from "../service/documents";
 import type { SyncState } from "../service/sync-state";
-
 import type { LocalChanges } from "./local-changes";
 
 export class RecoverIncoming {
-  constructor(
-    private readonly state: SyncState,
-    private readonly vault: VaultPort,
-    private readonly documents: Documents,
-    private readonly changes: LocalChanges,
-  ) {}
+	constructor(
+		private readonly state: SyncState,
+		private readonly vault: VaultPort,
+		private readonly documents: Documents,
+		private readonly changes: LocalChanges,
+	) {}
 
-  async run(): Promise<void> {
-    const incoming = this.state.data.incoming;
-    if (!incoming) {
-      return;
-    }
+	async run(): Promise<void> {
+		const incoming = this.state.data.incoming;
+		if (!incoming) {
+			return;
+		}
 
-    const paths = new Set(await this.vault.list());
-    let current: Uint8Array | undefined;
-    let currentDigest: string | null = null;
-    if (paths.has(incoming.file.path)) {
-      current = await this.vault.read(incoming.file.path);
-      currentDigest = await digest(current);
-    }
+		const paths = new Set(await this.vault.list());
+		let current: Uint8Array | undefined;
+		let currentDigest: string | null = null;
+		if (paths.has(incoming.file.path)) {
+			current = await this.vault.read(incoming.file.path);
+			currentDigest = await digest(current);
+		}
 
-    if (!current && incoming.expectedDigest !== null) {
-      await this.recoverDeletedFile(incoming);
+		if (!current && incoming.expectedDigest != null) {
+			await this.recoverDeletedFile(incoming);
 
-      return;
-    }
+			return;
+		}
 
-    if (currentDigest === incoming.expectedDigest) {
-      await this.clearIncoming();
+		if (currentDigest === incoming.expectedDigest) {
+			await this.clearIncoming();
 
-      return;
-    }
+			return;
+		}
 
-    if (currentDigest !== incoming.digest) {
-      await this.recoverChangedFile(incoming, current);
-    }
+		if (currentDigest !== incoming.digest) {
+			await this.recoverChangedFile(incoming, current);
+		}
 
-    await this.commitRecovered(incoming);
-  }
+		await this.commitRecovered(incoming);
+	}
 
-  private async receivedBytes(): Promise<Uint8Array> {
-    const received = await this.state.store.get("incoming");
-    if (!received) {
-      throw new Error(t(($) => $.errors.missingIncoming));
-    }
+	private async receivedBytes(): Promise<Uint8Array> {
+		const received = await this.state.store.get("incoming");
+		if (!received) {
+			throw new Error(t(($) => $.errors.missingIncoming));
+		}
 
-    return received;
-  }
+		return received;
+	}
 
-  private async clearIncoming(): Promise<void> {
-    await this.state.store.save({ ...this.state.data, incoming: null });
-    this.state.data.incoming = null;
-  }
+	private async clearIncoming(): Promise<void> {
+		await this.state.store.save({ ...this.state.data, incoming: null });
+		this.state.data.incoming = null;
+	}
 
-  private async preserveCopy(
-    incoming: IncomingWrite,
-    bytes: Uint8Array,
-    message: string,
-  ): Promise<void> {
-    const recoveryPath = conflictPath(incoming.file.path, crypto.randomUUID());
-    await this.vault.write(recoveryPath, bytes);
-    await this.changes.capture(recoveryPath);
-    const recovered = this.state.data.files.find((file) => file.path === recoveryPath)!;
-    this.state.reportConflict(
-      { ...incoming.file, ...recovered, size: bytes.length, conflict: true },
-      message,
-    );
-  }
+	private async preserveCopy(
+		incoming: IncomingWrite,
+		bytes: Uint8Array,
+		message: string,
+	): Promise<void> {
+		const recoveryPath = conflictPath(incoming.file.path, crypto.randomUUID());
+		await this.vault.write(recoveryPath, bytes);
+		await this.changes.capture(recoveryPath);
+		const recovered = this.state.data.files.find((file) => file.path === recoveryPath)!;
+		this.state.reportConflict(
+			{ ...incoming.file, ...recovered, size: bytes.length, conflict: true },
+			message,
+		);
+	}
 
-  private async recoverDeletedFile(incoming: IncomingWrite): Promise<void> {
-    await this.preserveCopy(
-      incoming,
-      await this.receivedBytes(),
-      t(($) => $.sync.deletedRecovered),
-    );
-    const deleting = this.state.data.pending.some(
-      (operation) => operation.fileId === incoming.file.id && operation.type === "delete",
-    );
-    if (!deleting) {
-      this.state.data.pending.push({
-        type: "delete",
-        opId: crypto.randomUUID(),
-        fileId: incoming.file.id,
-        baseRevision: incoming.file.revision,
-      });
-    }
+	private async recoverDeletedFile(incoming: IncomingWrite): Promise<void> {
+		await this.preserveCopy(
+			incoming,
+			await this.receivedBytes(),
+			t(($) => $.sync.deletedRecovered),
+		);
+		const deleting = this.state.data.pending.some(
+			(operation) => operation.fileId === incoming.file.id && operation.type === "delete",
+		);
+		if (!deleting) {
+			this.state.data.pending.push({
+				type: "delete",
+				opId: crypto.randomUUID(),
+				fileId: incoming.file.id,
+				baseRevision: incoming.file.revision,
+			});
+		}
 
-    await this.clearIncoming();
-  }
+		await this.clearIncoming();
+	}
 
-  private async recoverChangedFile(
-    incoming: IncomingWrite,
-    current: Uint8Array | undefined,
-  ): Promise<void> {
-    if (current) {
-      await this.preserveCopy(
-        incoming,
-        current,
-        t(($) => $.sync.interruptedRecovered),
-      );
-    }
+	private async recoverChangedFile(
+		incoming: IncomingWrite,
+		current: Uint8Array | undefined,
+	): Promise<void> {
+		if (current) {
+			await this.preserveCopy(
+				incoming,
+				current,
+				t(($) => $.sync.interruptedRecovered),
+			);
+		}
 
-    const received = await this.receivedBytes();
-    const written = await this.vault.writeIfUnchanged(incoming.file.path, current, received);
-    if (!written) {
-      throw new Error(t(($) => $.errors.recoveryChanged));
-    }
-  }
+		const received = await this.receivedBytes();
+		const written = await this.vault.writeIfUnchanged(incoming.file.path, current, received);
+		if (!written) {
+			throw new Error(t(($) => $.errors.recoveryChanged));
+		}
+	}
 
-  private async commitRecovered(incoming: IncomingWrite): Promise<void> {
-    let local = this.state.data.files.find((file) => file.id === incoming.file.id);
-    const received = {
-      ...incoming.file,
-      digest: incoming.digest,
-      diskDigest: incoming.digest,
-      documentRevision: incoming.file.revision,
-    };
-    if (!local) {
-      local = received;
-      this.state.data.files.push(local);
-    } else {
-      Object.assign(local, received);
-    }
+	private async commitRecovered(incoming: IncomingWrite): Promise<void> {
+		let local = this.state.data.files.find((file) => file.id === incoming.file.id);
+		const received = {
+			...incoming.file,
+			digest: incoming.digest,
+			diskDigest: incoming.digest,
+			documentRevision: incoming.file.revision,
+		};
+		if (!local) {
+			local = received;
+			this.state.data.files.push(local);
+		} else {
+			Object.assign(local, received);
+		}
 
-    let data: StoredData | undefined;
-    if (incoming.update) {
-      data = { key: `doc:${local.id}`, value: toUint8Array(incoming.update) };
-    }
+		let data: StoredData | undefined;
+		if (incoming.update != null && incoming.update !== "") {
+			data = { key: `doc:${local.id}`, value: toUint8Array(incoming.update) };
+		}
 
-    await this.state.store.save({ ...this.state.data, incoming: null }, data);
-    this.state.data.incoming = null;
-    const doc = this.documents.get(local.id);
-    if (data && doc) {
-      Y.applyUpdate(doc, data.value, "remote");
-    }
-  }
+		await this.state.store.save({ ...this.state.data, incoming: null }, data);
+		this.state.data.incoming = null;
+		const doc = this.documents.get(local.id);
+		if (data && doc) {
+			Y.applyUpdate(doc, data.value, "remote");
+		}
+	}
 }

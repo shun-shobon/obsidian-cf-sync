@@ -1,4 +1,5 @@
-import { EditorState, Transaction, Prec, type Extension } from "@codemirror/state";
+import { EditorState, Transaction, Prec } from "@codemirror/state";
+import type { Extension } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
 import type { Awareness } from "y-protocols/awareness";
@@ -7,50 +8,50 @@ import * as Y from "yjs";
 const managers = new WeakMap<Y.Doc, Y.UndoManager>();
 
 export function collaborationExtension(doc: Y.Doc, awareness?: Awareness): Extension {
-  let undoManager = managers.get(doc);
+	let undoManager = managers.get(doc);
 
-  if (!undoManager) {
-    undoManager = new Y.UndoManager(doc.getText("content"), { trackedOrigins: new Set() });
-    managers.set(doc, undoManager);
-    const manager = undoManager;
-    doc.on("destroy", () => manager.destroy());
-  }
+	if (!undoManager) {
+		undoManager = new Y.UndoManager(doc.getText("content"), { trackedOrigins: new Set() });
+		managers.set(doc, undoManager);
+		const manager = undoManager;
+		doc.on("destroy", () => manager.destroy());
+	}
 
-  return [
-    yCollab(doc.getText("content"), awareness, { undoManager }),
-    EditorView.theme({ ".cm-ySelectionInfo": { opacity: "1" } }),
-    EditorState.transactionExtender.of(() => ({ annotations: Transaction.addToHistory.of(false) })),
-    Prec.highest(
-      keymap.of(
-        yUndoManagerKeymap.map((binding) => ({
-          ...binding,
-          run: (view) => {
-            binding.run?.(view);
+	return [
+		yCollab(doc.getText("content"), awareness, { undoManager }),
+		EditorView.theme({ ".cm-ySelectionInfo": { opacity: "1" } }),
+		EditorState.transactionExtender.of(() => ({ annotations: Transaction.addToHistory.of(false) })),
+		Prec.highest(
+			keymap.of(
+				yUndoManagerKeymap.map((binding) => ({
+					...binding,
+					run: (view) => {
+						binding.run?.(view);
 
-            return true;
-          },
-        })),
-      ),
-    ),
-    Prec.highest(
-      EditorView.domEventHandlers({
-        beforeinput(event, view) {
-          switch (event.inputType) {
-            case "historyUndo":
-              yUndoManagerKeymap[0]?.run?.(view);
-              break;
-            case "historyRedo":
-              yUndoManagerKeymap[1]?.run?.(view);
-              break;
-            default:
-              return false;
-          }
+						return true;
+					},
+				})),
+			),
+		),
+		Prec.highest(
+			EditorView.domEventHandlers({
+				beforeinput(event, view) {
+					switch (event.inputType) {
+						case "historyUndo":
+							yUndoManagerKeymap[0]?.run?.(view);
+							break;
+						case "historyRedo":
+							yUndoManagerKeymap[1]?.run?.(view);
+							break;
+						default:
+							return false;
+					}
 
-          event.preventDefault();
+					event.preventDefault();
 
-          return true;
-        },
-      }),
-    ),
-  ];
+					return true;
+				},
+			}),
+		),
+	];
 }

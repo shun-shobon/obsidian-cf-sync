@@ -5,42 +5,42 @@ import * as Y from "yjs";
 import { ApplicationError } from "../domain/errors";
 
 export function materializeText(update: string): Uint8Array {
-  const doc = new Y.Doc();
+	const doc = new Y.Doc();
 
-  try {
-    Y.applyUpdate(doc, toUint8Array(update));
+	try {
+		Y.applyUpdate(doc, toUint8Array(update));
 
-    return new TextEncoder().encode(doc.getText("content").toJSON());
-  } finally {
-    doc.destroy();
-  }
+		return new TextEncoder().encode(doc.getText("content").toJSON());
+	} finally {
+		doc.destroy();
+	}
 }
 
 export async function mergeText(
-  update: string,
-  previous?: string,
+	update: string,
+	previous?: string,
 ): Promise<{
-  update: Uint8Array;
-  size: number;
-  digest: string;
+	update: Uint8Array;
+	size: number;
+	digest: string;
 }> {
-  const doc = new Y.Doc();
+	const doc = new Y.Doc();
 
-  try {
-    if (previous) {
-      Y.applyUpdate(doc, toUint8Array(previous));
-    }
+	try {
+		if (previous !== undefined) {
+			Y.applyUpdate(doc, toUint8Array(previous));
+		}
 
-    Y.applyUpdate(doc, toUint8Array(update));
-    if (doc.store.pendingStructs || doc.store.pendingDs) {
-      throw new ApplicationError("invalid-input", "Missing Yjs update dependencies");
-    }
-    const plain = new TextEncoder().encode(doc.getText("content").toJSON());
+		Y.applyUpdate(doc, toUint8Array(update));
+		if (doc.store.pendingStructs || doc.store.pendingDs) {
+			throw new ApplicationError("invalid-input", "Missing Yjs update dependencies");
+		}
+		const plain = new TextEncoder().encode(doc.getText("content").toJSON());
 
-    return { update: Y.encodeStateAsUpdate(doc), size: plain.length, digest: await digest(plain) };
-  } catch {
-    throw new ApplicationError("invalid-input", "Invalid Yjs update");
-  } finally {
-    doc.destroy();
-  }
+		return { update: Y.encodeStateAsUpdate(doc), size: plain.length, digest: await digest(plain) };
+	} catch {
+		throw new ApplicationError("invalid-input", "Invalid Yjs update");
+	} finally {
+		doc.destroy();
+	}
 }

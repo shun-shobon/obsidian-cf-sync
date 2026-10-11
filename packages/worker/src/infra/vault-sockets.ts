@@ -1,162 +1,172 @@
-import { digest, type ClientMessage, type ServerMessage } from "@cf-sync/protocol";
+import { digest } from "@cf-sync/protocol";
+import type { ClientMessage, ServerMessage } from "@cf-sync/protocol";
 import { toUint8Array } from "js-base64";
 import { decodeRelativePosition } from "yjs";
 
 import { ApplicationError } from "../domain/errors";
 
 interface Ticket {
-  deviceId: string;
-  expiresAt: number;
+	deviceId: string;
+	expiresAt: number;
 }
 
 type Presence = Extract<ServerMessage, { type: "presence" }>;
 
 interface Connection {
-  deviceId: string;
-  presence: Presence | null;
-  updatedAt: number;
+	deviceId: string;
+	presence: Presence | null;
+	updatedAt: number;
 }
 
 export class VaultSockets {
-  constructor(private readonly state: DurableObjectState) {}
+	constructor(private readonly state: DurableObjectState) {}
 
-  async assertDeviceActive(deviceId: string): Promise<void> {
-    if (await this.state.storage.get(`revoked:${deviceId}`)) {
-      throw new ApplicationError("forbidden", "Device revoked");
-    }
-  }
+	async assertDeviceActive(deviceId: string): Promise<void> {
+		const revoked = await this.state.storage.get<boolean>(`revoked:${deviceId}`);
 
-  async revoke(deviceId: string): Promise<void> {
-    await this.state.storage.put(`revoked:${deviceId}`, true);
+		if (revoked === true) {
+			throw new ApplicationError("forbidden", "Device revoked");
+		}
+	}
 
-    for (const ws of this.state.getWebSockets(deviceId)) {
-      this.leave(ws);
-      ws.close(4003, "Device revoked");
-    }
-  }
+	async revoke(deviceId: string): Promise<void> {
+		await this.state.storage.put(`revoked:${deviceId}`, true);
 
-  async issueTicket(deviceId: string): Promise<{ ticket: string; expiresAt: number }> {
-    const secret = crypto.randomUUID() + crypto.randomUUID();
-    const expiresAt = Date.now() + 30_000;
-    await this.state.storage.put(await this.ticketKey(secret), {
-      deviceId,
-      expiresAt,
-    } satisfies Ticket);
+		for (const ws of this.state.getWebSockets(deviceId)) {
+			this.leave(ws);
+			ws.close(4003, "Device revoked");
+		}
+	}
 
-    return { ticket: secret, expiresAt };
-  }
+	async issueTicket(deviceId: string): Promise<{ ticket: string; expiresAt: number }> {
+		const secret = crypto.randomUUID() + crypto.randomUUID();
+		const expiresAt = Date.now() + 30_000;
+		await this.state.storage.put(await this.ticketKey(secret), {
+			deviceId,
+			expiresAt,
+		} satisfies Ticket);
 
-  async connect(request: Request): Promise<Response> {
-    if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
-      throw new ApplicationError("upgrade-required", "WebSocket upgrade required");
-    }
+		return { ticket: secret, expiresAt };
+	}
 
-    const secret = new URL(request.url).searchParams.get("ticket");
+	async connect(request: Request): Promise<Response> {
+		if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+			throw new ApplicationError("upgrade-required", "WebSocket upgrade required");
+		}
 
-    if (!secret || secret.length > 200) {
-      throw new ApplicationError("unauthenticated", "Invalid ticket");
-    }
+		const secret = new URL(request.url).searchParams.get("ticket");
 
-    const key = await this.ticketKey(secret);
-    const ticket = await this.state.storage.get<Ticket>(key);
-    await this.state.storage.delete(key);
+		if (secret == null || secret === "" || secret.length > 200) {
+			throw new ApplicationError("unauthenticated", "Invalid ticket");
+		}
 
-    if (!ticket || ticket.expiresAt <= Date.now()) {
-      throw new ApplicationError("unauthenticated", "Expired or consumed ticket");
-    }
+		const key = await this.ticketKey(secret);
+		const ticket = await this.state.storage.get<Ticket>(key);
+		await this.state.storage.delete(key);
 
-    const revoked = await this.state.storage.get(`revoked:${ticket.deviceId}`);
+		if (!ticket || ticket.expiresAt <= Date.now()) {
+			throw new ApplicationError("unauthenticated", "Expired or consumed ticket");
+		}
 
-    if (revoked) {
-      throw new ApplicationError("unauthenticated", "Expired or consumed ticket");
-    }
+		const revoked = await this.state.storage.get<boolean>(`revoked:${ticket.deviceId}`);
 
-    for (const existing of this.state.getWebSockets(ticket.deviceId)) {
-      this.leave(existing);
-      existing.close(4000, "Connection replaced");
-    }
-    const pair = new WebSocketPair();
-    this.state.acceptWebSocket(pair[1], [ticket.deviceId]);
-    pair[1].serializeAttachment({
-      deviceId: ticket.deviceId,
-      presence: null,
-      updatedAt: 0,
-    } satisfies Connection);
-    for (const ws of this.state.getWebSockets()) {
-      const connection = ws.deserializeAttachment() as Connection | null;
-      if (
-        ws.readyState === WebSocket.OPEN &&
-        connection?.presence &&
-        connection.updatedAt > Date.now() - 10_000
-      ) {
-        pair[1].send(JSON.stringify(connection.presence));
-      }
-    }
-    console.info({ event: "websocket.connected", deviceId: ticket.deviceId });
+		if (revoked === true) {
+			throw new ApplicationError("unauthenticated", "Expired or consumed ticket");
+		}
 
-    return new Response(null, { status: 101, webSocket: pair[0] });
-  }
+		for (const existing of this.state.getWebSockets(ticket.deviceId)) {
+			this.leave(existing);
+			existing.close(4000, "Connection replaced");
+		}
+		const pair = new WebSocketPair();
+		this.state.acceptWebSocket(pair[1], [ticket.deviceId]);
+		pair[1].serializeAttachment({
+			deviceId: ticket.deviceId,
+			presence: null,
+			updatedAt: 0,
+		} satisfies Connection);
+		for (const ws of this.state.getWebSockets()) {
+			const connection = readConnection(ws);
+			if (
+				ws.readyState === WebSocket.OPEN &&
+				connection?.presence &&
+				connection.updatedAt > Date.now() - 10_000
+			) {
+				pair[1].send(JSON.stringify(connection.presence));
+			}
+		}
+		console.info({ event: "websocket.connected", deviceId: ticket.deviceId });
 
-  async authenticate(ws: WebSocket): Promise<string> {
-    const connection = ws.deserializeAttachment() as Connection | null;
-    if (!connection || ws.readyState !== WebSocket.OPEN) {
-      throw new ApplicationError("unauthenticated", "WebSocket is not authenticated");
-    }
-    await this.assertDeviceActive(connection.deviceId);
-    return connection.deviceId;
-  }
+		return new Response(null, { status: 101, webSocket: pair[0] });
+	}
 
-  presence(
-    ws: WebSocket,
-    deviceId: string,
-    value: Extract<ClientMessage, { type: "presence" }>,
-  ): void {
-    if (value.cursor) {
-      decodeRelativePosition(toUint8Array(value.cursor.anchor));
-      decodeRelativePosition(toUint8Array(value.cursor.head));
-    }
-    const presence: Presence = { ...value, deviceId };
-    ws.serializeAttachment({ deviceId, presence, updatedAt: Date.now() } satisfies Connection);
-    this.broadcast(presence);
-  }
+	async authenticate(ws: WebSocket): Promise<string> {
+		const connection = readConnection(ws);
+		if (!connection || ws.readyState !== WebSocket.OPEN) {
+			throw new ApplicationError("unauthenticated", "WebSocket is not authenticated");
+		}
+		await this.assertDeviceActive(connection.deviceId);
+		return connection.deviceId;
+	}
 
-  leave(ws: WebSocket): void {
-    const connection = ws.deserializeAttachment() as Connection | null;
-    if (!connection?.presence) {
-      return;
-    }
-    ws.serializeAttachment({ ...connection, presence: null });
-    this.broadcast({ ...connection.presence, fileId: null, cursor: null });
-  }
+	presence(
+		ws: WebSocket,
+		deviceId: string,
+		value: Extract<ClientMessage, { type: "presence" }>,
+	): void {
+		if (value.cursor) {
+			decodeRelativePosition(toUint8Array(value.cursor.anchor));
+			decodeRelativePosition(toUint8Array(value.cursor.head));
+		}
+		const presence: Presence = { ...value, deviceId };
+		ws.serializeAttachment({ deviceId, presence, updatedAt: Date.now() } satisfies Connection);
+		this.broadcast(presence);
+	}
 
-  broadcast(message: ServerMessage): void {
-    const data = JSON.stringify(message);
+	leave(ws: WebSocket): void {
+		const connection = readConnection(ws);
+		if (!connection?.presence) {
+			return;
+		}
+		ws.serializeAttachment({ ...connection, presence: null });
+		this.broadcast({ ...connection.presence, fileId: null, cursor: null });
+	}
 
-    for (const ws of this.state.getWebSockets()) {
-      if (ws.readyState !== WebSocket.OPEN) {
-        continue;
-      }
+	broadcast(message: ServerMessage): void {
+		const data = JSON.stringify(message);
 
-      try {
-        ws.send(data);
-      } catch {
-        console.warn({ event: "websocket.notification.failed", messageType: message.type });
-        ws.close(1011, "Notification failed");
-      }
-    }
-  }
+		for (const ws of this.state.getWebSockets()) {
+			if (ws.readyState !== WebSocket.OPEN) {
+				continue;
+			}
 
-  async expire(): Promise<void> {
-    const tickets = await this.state.storage.list<Ticket>({ prefix: "ticket:" });
+			try {
+				ws.send(data);
+			} catch {
+				console.warn({ event: "websocket.notification.failed", messageType: message.type });
+				ws.close(1011, "Notification failed");
+			}
+		}
+	}
 
-    for (const [key, ticket] of tickets) {
-      if (ticket.expiresAt <= Date.now()) {
-        await this.state.storage.delete(key);
-      }
-    }
-  }
+	async expire(): Promise<void> {
+		const tickets = await this.state.storage.list<Ticket>({ prefix: "ticket:" });
 
-  private async ticketKey(secret: string): Promise<string> {
-    return `ticket:${await digest(new TextEncoder().encode(secret))}`;
-  }
+		for (const [key, ticket] of tickets) {
+			if (ticket.expiresAt <= Date.now()) {
+				await this.state.storage.delete(key);
+			}
+		}
+	}
+
+	private async ticketKey(secret: string): Promise<string> {
+		return `ticket:${await digest(new TextEncoder().encode(secret))}`;
+	}
+}
+
+function readConnection(ws: WebSocket): Connection | null {
+	const attachment: unknown = ws.deserializeAttachment();
+
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- attachmentはこのクラスがConnectionとしてのみ保存する
+	return attachment as Connection | null;
 }

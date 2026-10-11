@@ -1,223 +1,223 @@
-import { isExcluded, type Content, type OperationResult } from "@cf-sync/protocol";
+import { isExcluded } from "@cf-sync/protocol";
+import type { Content, OperationResult } from "@cf-sync/protocol";
 import { fromUint8Array } from "js-base64";
 
 import { ApplicationError } from "../domain/errors";
-import {
-  TEXT_CHUNK_SIZE,
-  type FileWrite,
-  type OperationChanges,
-  type StoredFile,
-  type VaultMeta,
-} from "../domain/vault-state";
-
+import { TEXT_CHUNK_SIZE } from "../domain/vault-state";
+import type { FileWrite, OperationChanges, StoredFile, VaultMeta } from "../domain/vault-state";
 import { VaultMaintenance } from "./vault-maintenance";
 
 export class VaultRepository {
-  private readonly maintenance: VaultMaintenance;
+	private readonly maintenance: VaultMaintenance;
 
-  constructor(private readonly storage: DurableObjectStorage) {
-    this.maintenance = new VaultMaintenance(storage);
-  }
+	constructor(private readonly storage: DurableObjectStorage) {
+		this.maintenance = new VaultMaintenance(storage);
+	}
 
-  async initialize(vaultId: string): Promise<VaultMeta> {
-    if (!(await this.storage.get("meta"))) {
-      await this.storage.put("meta", {
-        revision: 0,
-        r2Revision: 0,
-        exclusions: [],
-        vaultId,
-      } satisfies VaultMeta);
-    }
+	async initialize(vaultId: string): Promise<VaultMeta> {
+		const stored = await this.storage.get<VaultMeta>("meta");
 
-    const meta = await this.meta();
+		if (stored === undefined) {
+			await this.storage.put("meta", {
+				revision: 0,
+				r2Revision: 0,
+				exclusions: [],
+				vaultId,
+			} satisfies VaultMeta);
+		}
 
-    if (meta.vaultId !== vaultId) {
-      throw new ApplicationError("forbidden", "Vault mismatch");
-    }
+		const meta = await this.meta();
 
-    return meta;
-  }
+		if (meta.vaultId !== vaultId) {
+			throw new ApplicationError("forbidden", "Vault mismatch");
+		}
 
-  async meta(): Promise<VaultMeta> {
-    const meta = await this.storage.get<VaultMeta>("meta");
+		return meta;
+	}
 
-    if (!meta) {
-      throw new ApplicationError("not-found", "Vault not initialized");
-    }
+	async meta(): Promise<VaultMeta> {
+		const meta = await this.storage.get<VaultMeta>("meta");
 
-    return meta;
-  }
+		if (!meta) {
+			throw new ApplicationError("not-found", "Vault not initialized");
+		}
 
-  async files(): Promise<StoredFile[]> {
-    const files = await this.storage.list<StoredFile>({ prefix: "file:" });
+		return meta;
+	}
 
-    return [...files.values()];
-  }
+	async files(): Promise<StoredFile[]> {
+		const files = await this.storage.list<StoredFile>({ prefix: "file:" });
 
-  async file(id: string): Promise<StoredFile> {
-    const stored = await this.storage.get<StoredFile>(`file:${id}`);
+		return [...files.values()];
+	}
 
-    if (!stored) {
-      throw new ApplicationError("not-found", "File not found");
-    }
+	async file(id: string): Promise<StoredFile> {
+		const stored = await this.storage.get<StoredFile>(`file:${id}`);
 
-    return stored;
-  }
+		if (!stored) {
+			throw new ApplicationError("not-found", "File not found");
+		}
 
-  async deletedContent(id: string): Promise<Content | undefined> {
-    const stored = await this.storage.get<StoredFile>(`deleted:${id}`);
-    if (!stored) {
-      return undefined;
-    }
-    return this.content(stored);
-  }
+		return stored;
+	}
 
-  operationResult(id: string): Promise<OperationResult | undefined> {
-    return this.storage.get<OperationResult>(`op:${id}`);
-  }
+	async deletedContent(id: string): Promise<Content | undefined> {
+		const stored = await this.storage.get<StoredFile>(`deleted:${id}`);
+		if (!stored) {
+			return undefined;
+		}
+		return await this.content(stored);
+	}
 
-  async content(stored: StoredFile): Promise<Content> {
-    if (stored.file.kind === "blob") {
-      if (!stored.blob) {
-        throw new Error("Missing blob");
-      }
+	operationResult(id: string): Promise<OperationResult | undefined> {
+		return this.storage.get<OperationResult>(`op:${id}`);
+	}
 
-      return { kind: "blob", blob: stored.blob };
-    }
+	async content(stored: StoredFile): Promise<Content> {
+		if (stored.file.kind === "blob") {
+			if (!stored.blob) {
+				throw new Error("Missing blob");
+			}
 
-    const chunks = await Promise.all(
-      Array.from({ length: stored.chunks }, (_, index) =>
-        this.storage.get<Uint8Array>(`text:${stored.file.id}:${index}`),
-      ),
-    );
-    const byteLength = chunks.reduce((size, chunk) => {
-      if (!chunk) {
-        throw new Error("Missing CRDT chunk");
-      }
+			return { kind: "blob", blob: stored.blob };
+		}
 
-      return size + chunk.length;
-    }, 0);
-    const bytes = new Uint8Array(byteLength);
-    let offset = 0;
+		const chunks = await Promise.all(
+			Array.from({ length: stored.chunks }, (_, index) =>
+				this.storage.get<Uint8Array>(`text:${stored.file.id}:${index}`),
+			),
+		);
+		const byteLength = chunks.reduce((size, chunk) => {
+			if (!chunk) {
+				throw new Error("Missing CRDT chunk");
+			}
 
-    for (const chunk of chunks) {
-      if (!chunk) {
-        throw new Error("Missing CRDT chunk");
-      }
+			return size + chunk.length;
+		}, 0);
+		const bytes = new Uint8Array(byteLength);
+		let offset = 0;
 
-      bytes.set(chunk, offset);
-      offset += chunk.length;
-    }
+		for (const chunk of chunks) {
+			if (!chunk) {
+				throw new Error("Missing CRDT chunk");
+			}
 
-    return { kind: "text", update: fromUint8Array(bytes) };
-  }
+			bytes.set(chunk, offset);
+			offset += chunk.length;
+		}
 
-  async setExclusions(meta: VaultMeta, exclusions: string[]): Promise<void> {
-    meta.exclusions = [...new Set(exclusions)];
-    meta.revision++;
+		return { kind: "text", update: fromUint8Array(bytes) };
+	}
 
-    await this.storage.transaction(async (tx) => {
-      await tx.put("meta", meta);
-      await this.maintenance.request("flush", tx);
+	async setExclusions(meta: VaultMeta, exclusions: string[]): Promise<void> {
+		meta.exclusions = [...new Set(exclusions)];
+		meta.revision++;
 
-      for (const item of await this.files()) {
-        if (!isExcluded(item.file.path, exclusions)) {
-          await tx.put(`dirty:${item.file.path}`, meta.revision);
-        }
-      }
-    });
-  }
+		await this.storage.transaction(async (tx) => {
+			await tx.put("meta", meta);
+			await this.maintenance.request("flush", tx);
 
-  async commit(meta: VaultMeta, files: StoredFile[], changes: OperationChanges): Promise<void> {
-    await this.storage.transaction(async (tx) => {
-      await tx.put("meta", meta);
-      await this.maintenance.request("flush", tx);
+			for (const item of await this.files()) {
+				if (!isExcluded(item.file.path, exclusions)) {
+					await tx.put(`dirty:${item.file.path}`, meta.revision);
+				}
+			}
+		});
+	}
 
-      if (changes.removed) {
-        await this.deleteFile(tx, changes.removed);
-      }
+	async commit(meta: VaultMeta, files: StoredFile[], changes: OperationChanges): Promise<void> {
+		await this.storage.transaction(async (tx) => {
+			await tx.put("meta", meta);
+			await this.maintenance.request("flush", tx);
 
-      for (const write of changes.writes) {
-        await this.writeFile(tx, write, files);
-      }
+			if (changes.removed) {
+				await this.deleteFile(tx, changes.removed);
+			}
 
-      for (const path of changes.dirty) {
-        await tx.put(`dirty:${path}`, meta.revision);
-      }
+			for (const write of changes.writes) {
+				await this.writeFile(tx, write, files);
+			}
 
-      await tx.put(`op:${changes.result.opId}`, changes.result);
+			for (const path of changes.dirty) {
+				await tx.put(`dirty:${path}`, meta.revision);
+			}
 
-      const touchesBlobs =
-        changes.removed?.blob || changes.writes.some(({ stored }) => stored.blob);
-      const replacesBlob = changes.writes.some(({ stored }) =>
-        files.some((previous) => previous.file.id === stored.file.id && previous.blob),
-      );
+			await tx.put(`op:${changes.result.opId}`, changes.result);
 
-      if (touchesBlobs || replacesBlob) {
-        await this.maintenance.request("blobs", tx);
-      }
-    });
-  }
+			const touchesBlobs =
+				changes.removed?.blob !== undefined ||
+				changes.writes.some(({ stored }) => stored.blob !== undefined);
+			const replacesBlob = changes.writes.some(({ stored }) =>
+				files.some(
+					(previous) => previous.file.id === stored.file.id && previous.blob !== undefined,
+				),
+			);
 
-  async dirtyPaths(): Promise<string[]> {
-    const paths = await this.storage.list<boolean>({ prefix: "dirty:" });
+			if (touchesBlobs || replacesBlob) {
+				await this.maintenance.request("blobs", tx);
+			}
+		});
+	}
 
-    return [...paths.keys()].map((key) => key.slice(6));
-  }
+	async dirtyPaths(): Promise<string[]> {
+		const paths = await this.storage.list<boolean>({ prefix: "dirty:" });
 
-  async markFlushed(meta: VaultMeta, paths: string[]): Promise<void> {
-    await this.storage.transaction(async (tx) => {
-      const latest = await this.meta();
-      latest.r2Revision = meta.revision;
-      await tx.put("meta", latest);
-      meta.r2Revision = meta.revision;
-      for (const path of paths) {
-        const revision = await tx.get<number>(`dirty:${path}`);
-        if (revision !== undefined && revision <= meta.revision) {
-          await tx.delete(`dirty:${path}`);
-        }
-      }
-    });
-  }
+		return [...paths.keys()].map((key) => key.slice(6));
+	}
 
-  private async deleteFile(tx: DurableObjectTransaction, stored: StoredFile): Promise<void> {
-    await tx.delete(`file:${stored.file.id}`);
-    if (stored.file.kind === "text") {
-      await tx.put(`deleted:${stored.file.id}`, stored);
-      return;
-    }
+	async markFlushed(meta: VaultMeta, paths: string[]): Promise<void> {
+		await this.storage.transaction(async (tx) => {
+			const latest = await this.meta();
+			latest.r2Revision = meta.revision;
+			await tx.put("meta", latest);
+			meta.r2Revision = meta.revision;
+			for (const path of paths) {
+				const revision = await tx.get<number>(`dirty:${path}`);
+				if (revision !== undefined && revision <= meta.revision) {
+					await tx.delete(`dirty:${path}`);
+				}
+			}
+		});
+	}
 
-    for (let index = 0; index < stored.chunks; index++) {
-      await tx.delete(`text:${stored.file.id}:${index}`);
-    }
-  }
+	private async deleteFile(tx: DurableObjectTransaction, stored: StoredFile): Promise<void> {
+		await tx.delete(`file:${stored.file.id}`);
+		if (stored.file.kind === "text") {
+			await tx.put(`deleted:${stored.file.id}`, stored);
+			return;
+		}
 
-  private async writeFile(
-    tx: DurableObjectTransaction,
-    { stored, update }: FileWrite,
-    files: StoredFile[],
-  ): Promise<void> {
-    await tx.put(`file:${stored.file.id}`, stored);
+		for (let index = 0; index < stored.chunks; index++) {
+			await tx.delete(`text:${stored.file.id}:${index}`);
+		}
+	}
 
-    if (!update) {
-      return;
-    }
+	private async writeFile(
+		tx: DurableObjectTransaction,
+		{ stored, update }: FileWrite,
+		files: StoredFile[],
+	): Promise<void> {
+		await tx.put(`file:${stored.file.id}`, stored);
 
-    for (let index = 0; index < stored.chunks; index++) {
-      const start = index * TEXT_CHUNK_SIZE;
-      const chunk = update.slice(start, start + TEXT_CHUNK_SIZE);
+		if (!update) {
+			return;
+		}
 
-      await tx.put(`text:${stored.file.id}:${index}`, chunk);
-    }
+		for (let index = 0; index < stored.chunks; index++) {
+			const start = index * TEXT_CHUNK_SIZE;
+			const chunk = update.slice(start, start + TEXT_CHUNK_SIZE);
 
-    const old = files.find((entry) => entry.file.id === stored.file.id);
+			await tx.put(`text:${stored.file.id}:${index}`, chunk);
+		}
 
-    if (!old) {
-      return;
-    }
+		const old = files.find((entry) => entry.file.id === stored.file.id);
 
-    for (let index = stored.chunks; index < old.chunks; index++) {
-      await tx.delete(`text:${stored.file.id}:${index}`);
-    }
-  }
+		if (!old) {
+			return;
+		}
+
+		for (let index = stored.chunks; index < old.chunks; index++) {
+			await tx.delete(`text:${stored.file.id}:${index}`);
+		}
+	}
 }

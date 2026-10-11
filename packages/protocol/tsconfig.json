@@ -1,7 +1,7 @@
 {
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "types": []
-  },
-  "include": ["src", "tests", "*.config.ts"]
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"types": []
+	},
+	"include": ["src", "tests", "*.config.ts"]
 }

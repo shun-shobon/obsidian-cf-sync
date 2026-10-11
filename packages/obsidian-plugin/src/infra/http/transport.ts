@@ -1,15 +1,15 @@
 export interface HttpRequest {
-  url: string;
-  method: string;
-  headers?: Record<string, string>;
-  body?: string | ArrayBuffer;
+	url: string;
+	method: string;
+	headers?: Record<string, string>;
+	body?: string | ArrayBuffer;
 }
 
 export interface HttpResponse {
-  status: number;
-  headers: Record<string, string>;
-  text: string;
-  bytes: ArrayBuffer;
+	status: number;
+	headers: Record<string, string>;
+	text: string;
+	bytes: ArrayBuffer;
 }
 
 export type Transport = (request: HttpRequest) => Promise<HttpResponse>;

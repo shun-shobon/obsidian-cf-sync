@@ -1,6 +1,9 @@
 packages:
   - packages/*
 minimumReleaseAge: 1440
+minimumReleaseAgeExclude:
+  - "@shun-shobon/oxfmt-config@7.0.0"
+  - "@shun-shobon/oxlint-config@7.0.0"
 saveExact: true
 strictDepBuilds: true
 trustPolicy: no-downgrade

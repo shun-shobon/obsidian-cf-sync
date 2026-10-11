@@ -2,7 +2,6 @@ import { Hono } from "hono";
 
 import { authenticate } from "../access-auth";
 import type { Env } from "../env";
-
 import { accountApiRoutes } from "./account-routes";
 import { notFound, onError } from "./responses";
 import { vaultApiRoutes } from "./vault-routes";
@@ -14,10 +13,10 @@ apiRoutes.onError(onError);
 apiRoutes.notFound(notFound);
 
 apiRoutes.use("*", async (c, next) => {
-  await authenticate(c.req.raw, c.env);
-  console.info({ event: "access.authenticated" });
+	await authenticate(c.req.raw, c.env);
+	console.info({ event: "access.authenticated" });
 
-  await next();
+	await next();
 });
 
 apiRoutes.route("/", accountApiRoutes);

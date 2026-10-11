@@ -1,95 +1,96 @@
-import { isExcluded, type FileRecord } from "@cf-sync/protocol";
+import { isExcluded } from "@cf-sync/protocol";
+import type { FileRecord } from "@cf-sync/protocol";
 
 import { t } from "../../i18n";
 import type { LocalState, SyncStatus } from "../domain/sync-state";
 import type { SyncStore } from "../ports/sync-store";
 
 export class SyncState {
-  data: LocalState = {
-    initialized: false,
-    incoming: null,
-    attempted: [],
-    files: [],
-    pending: [],
-    exclusions: [],
-    revision: 0,
-    r2Revision: 0,
-    conflicts: [],
-  };
+	data: LocalState = {
+		initialized: false,
+		incoming: null,
+		attempted: [],
+		files: [],
+		pending: [],
+		exclusions: [],
+		revision: 0,
+		r2Revision: 0,
+		conflicts: [],
+	};
 
-  constructor(
-    readonly store: SyncStore,
-    private readonly onStatus: (status: SyncStatus) => void,
-    private readonly onConflict: (file: FileRecord, message: string) => void,
-  ) {}
+	constructor(
+		readonly store: SyncStore,
+		private readonly onStatus: (status: SyncStatus) => void,
+		private readonly onConflict: (file: FileRecord, message: string) => void,
+	) {}
 
-  async load(): Promise<void> {
-    const stored = await this.store.load();
-    if (stored) {
-      this.data = stored;
-    }
-  }
+	async load(): Promise<void> {
+		const stored = await this.store.load();
+		if (stored) {
+			this.data = stored;
+		}
+	}
 
-  hasPending(): boolean {
-    return this.data.pending.some((operation) => {
-      const local = this.data.files.find((file) => file.id === operation.fileId);
+	hasPending(): boolean {
+		return this.data.pending.some((operation) => {
+			const local = this.data.files.find((file) => file.id === operation.fileId);
 
-      return !local || !isExcluded(local.path, this.data.exclusions);
-    });
-  }
+			return !local || !isExcluded(local.path, this.data.exclusions);
+		});
+	}
 
-  emit(phase: SyncStatus["phase"], error?: unknown): void {
-    const status: SyncStatus = {
-      phase,
-      pending: this.data.pending.length,
-      revision: this.data.revision,
-      r2Revision: this.data.r2Revision,
-    };
+	emit(phase: SyncStatus["phase"], error?: unknown): void {
+		const status: SyncStatus = {
+			phase,
+			pending: this.data.pending.length,
+			revision: this.data.revision,
+			r2Revision: this.data.r2Revision,
+		};
 
-    if (error !== undefined) {
-      status.error = errorMessage(error);
-    }
+		if (error !== undefined) {
+			status.error = errorMessage(error);
+		}
 
-    this.onStatus(status);
-  }
+		this.onStatus(status);
+	}
 
-  emitProgress(): void {
-    if (this.data.pending.length > 0) {
-      this.emit("syncing");
+	emitProgress(): void {
+		if (this.data.pending.length > 0) {
+			this.emit("syncing");
 
-      return;
-    }
+			return;
+		}
 
-    const awaitingR2 = this.data.r2Revision < this.data.revision;
-    if (awaitingR2) {
-      this.emit("r2-pending");
+		const awaitingR2 = this.data.r2Revision < this.data.revision;
+		if (awaitingR2) {
+			this.emit("r2-pending");
 
-      return;
-    }
+			return;
+		}
 
-    this.emit("synced");
-  }
+		this.emit("synced");
+	}
 
-  persist(): Promise<void> {
-    return this.store.save(this.data);
-  }
+	persist(): Promise<void> {
+		return this.store.save(this.data);
+	}
 
-  reportConflict(file: FileRecord, message: string): void {
-    if (!this.data.conflicts.some((entry) => entry.id === file.id)) {
-      this.data.conflicts.push(file);
-      this.onConflict(file, message);
-    }
-  }
+	reportConflict(file: FileRecord, message: string): void {
+		if (!this.data.conflicts.some((entry) => entry.id === file.id)) {
+			this.data.conflicts.push(file);
+			this.onConflict(file, message);
+		}
+	}
 }
 
 function errorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
+	if (error instanceof Error) {
+		return error.message;
+	}
 
-  if (typeof error === "string") {
-    return error;
-  }
+	if (typeof error === "string") {
+		return error;
+	}
 
-  return t(($) => $.errors.syncFailed);
+	return t(($) => $.errors.syncFailed);
 }
