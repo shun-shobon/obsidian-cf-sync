@@ -86,7 +86,8 @@ vaultApiRoutes.post("/tickets", async (c) => {
 	url.searchParams.set("ticket", ticket.ticket);
 	c.header("Cache-Control", "no-store");
 
-	return c.json({ url: url.href });
+	// Released plugins up to 0.3.1 reject a ticket response without expiresAt.
+	return c.json({ url: url.href, expiresAt: ticket.expiresAt });
 });
 
 vaultApiRoutes.get("/blobs/:id", async (c) => {
