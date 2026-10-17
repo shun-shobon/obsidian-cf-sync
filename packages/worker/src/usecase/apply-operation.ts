@@ -2,7 +2,12 @@ import { isExcluded } from "@cf-sync/protocol";
 import type { Operation, OperationResult } from "@cf-sync/protocol";
 
 import { ApplicationError } from "../domain/errors";
-import type { OperationChanges, StoredFile, VaultMeta } from "../domain/vault-state";
+import type {
+	OperationOutcome,
+	OperationState,
+	StoredFile,
+	VaultMeta,
+} from "../domain/vault-state";
 import type { BlobStorage } from "../infra/blob-storage";
 import type { VaultRepository } from "../infra/vault-repository";
 import type { VaultSockets } from "../infra/vault-sockets";
@@ -31,20 +36,24 @@ export async function applyOperation(
 	const files = await context.repository.files();
 	const current = files.find((item) => item.file.id === operation.fileId);
 	assertIncluded(operation, current, meta);
-	const revision = meta.revision;
-	const changes = await prepare(context, operation, current, files, meta);
+
+	const state = { current, files, nextRevision: meta.revision + 1 };
+	const outcome = await prepare(context, operation, state);
 
 	// Rejected moves and deletions of missing files change nothing for other devices or R2.
-	if (meta.revision === revision) {
-		await context.repository.saveOperationResult(changes.result);
+	if (!outcome.changes) {
+		const result = operationResult(operation, state, meta.revision, outcome);
+		await context.repository.saveOperationResult(result);
 
-		return changes.result;
+		return result;
 	}
 
-	await context.repository.commit(meta, files, changes);
-	broadcast(context.sockets, operation, changes.result, deviceId);
+	const result = operationResult(operation, state, state.nextRevision, outcome);
+	const nextMeta = { ...meta, revision: state.nextRevision };
+	await context.repository.commit(nextMeta, files, { ...outcome.changes, result });
+	broadcast(context.sockets, operation, result, deviceId);
 
-	return changes.result;
+	return result;
 }
 
 function assertIncluded(
@@ -63,47 +72,39 @@ function assertIncluded(
 async function prepare(
 	context: OperationContext,
 	operation: Operation,
-	current: StoredFile | undefined,
-	files: StoredFile[],
-	meta: VaultMeta,
-): Promise<OperationChanges> {
-	const changes: OperationChanges = {
-		result: {
-			opId: operation.opId,
-			revision: meta.revision,
-			previousRevision: current?.file.revision ?? null,
-			previousPathRevision: current?.file.pathRevision ?? null,
-			file: null,
-			conflict: false,
-		},
-		writes: [],
-		dirty: new Set(),
-	};
-
-	switch (operation.type) {
-		case "move":
-			applyMove(operation, current, files, meta, changes);
-			break;
-		case "delete":
-			await applyDeletion(operation, current, files, meta, changes, context.repository);
-			break;
-		case "create":
-		case "edit":
-			await applyContentChange(
-				operation,
-				current,
-				files,
-				meta,
-				changes,
-				context.repository,
-				context.blobs,
-			);
-			break;
+	state: OperationState,
+): Promise<OperationOutcome> {
+	if (operation.type === "move") {
+		return applyMove(operation, state);
 	}
 
-	changes.result.revision = meta.revision;
+	if (operation.type === "delete") {
+		return await applyDeletion(operation, state, context.repository);
+	}
 
-	return changes;
+	return await applyContentChange(operation, state, context.repository, context.blobs);
+}
+
+function operationResult(
+	operation: Operation,
+	{ current }: OperationState,
+	revision: number,
+	outcome: OperationOutcome,
+): OperationResult {
+	const result: OperationResult = {
+		opId: operation.opId,
+		revision,
+		previousRevision: current?.file.revision ?? null,
+		previousPathRevision: current?.file.pathRevision ?? null,
+		file: outcome.file,
+		conflict: outcome.conflictReason !== undefined,
+	};
+
+	if (outcome.conflictReason !== undefined) {
+		result.conflictReason = outcome.conflictReason;
+	}
+
+	return result;
 }
 
 function broadcast(

@@ -32,8 +32,7 @@ export class VaultSockets {
 		await this.state.storage.put(`revoked:${deviceId}`, true);
 
 		for (const ws of this.state.getWebSockets(deviceId)) {
-			this.leave(ws);
-			ws.close(4003, "Device revoked");
+			this.disconnect(ws, 4003, "Device revoked");
 		}
 	}
 
@@ -72,9 +71,9 @@ export class VaultSockets {
 		}
 
 		for (const existing of this.state.getWebSockets(ticket.deviceId)) {
-			this.leave(existing);
-			existing.close(4000, "Connection replaced");
+			this.disconnect(existing, 4000, "Connection replaced");
 		}
+
 		const pair = new WebSocketPair();
 		this.state.acceptWebSocket(pair[1], [ticket.deviceId]);
 		pair[1].serializeAttachment({
@@ -127,6 +126,11 @@ export class VaultSockets {
 		}
 		ws.serializeAttachment({ ...connection, presence: null });
 		this.broadcast({ ...connection.presence, fileId: null, cursor: null });
+	}
+
+	disconnect(ws: WebSocket, code: number, reason: string): void {
+		this.leave(ws);
+		ws.close(code, reason);
 	}
 
 	broadcast(message: ServerMessage): void {

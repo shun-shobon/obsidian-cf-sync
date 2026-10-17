@@ -13,6 +13,8 @@ import type {
 } from "../domain/vault-state";
 import type { VaultMaintenance } from "./vault-maintenance";
 
+type StorageReader = DurableObjectStorage | DurableObjectTransaction;
+
 export class VaultRepository {
 	constructor(
 		private readonly storage: DurableObjectStorage,
@@ -20,22 +22,20 @@ export class VaultRepository {
 	) {}
 
 	async initialize(vaultId: string): Promise<VaultMeta> {
-		let meta = await this.storage.get<VaultMeta>("meta");
+		const existing = await this.storage.get<VaultMeta>("meta");
 
-		if (meta === undefined) {
-			meta = { revision: 0, r2Revision: 0, exclusions: [], vaultId };
-			await this.storage.put("meta", meta);
+		if (existing !== undefined) {
+			return existing;
 		}
 
-		if (meta.vaultId !== vaultId) {
-			throw new ApplicationError("forbidden", "Vault mismatch");
-		}
+		const meta: VaultMeta = { revision: 0, r2Revision: 0, exclusions: [], vaultId };
+		await this.storage.put("meta", meta);
 
 		return meta;
 	}
 
-	async meta(): Promise<VaultMeta> {
-		const meta = await this.storage.get<VaultMeta>("meta");
+	async meta(storage: StorageReader = this.storage): Promise<VaultMeta> {
+		const meta = await storage.get<VaultMeta>("meta");
 
 		if (!meta) {
 			throw new ApplicationError("not-found", "Vault not initialized");
@@ -44,8 +44,8 @@ export class VaultRepository {
 		return meta;
 	}
 
-	async files(): Promise<StoredFile[]> {
-		const files = await this.storage.list<StoredFile>({ prefix: "file:" });
+	async files(storage: StorageReader = this.storage): Promise<StoredFile[]> {
+		const files = await storage.list<StoredFile>({ prefix: "file:" });
 
 		return [...files.values()];
 	}
@@ -121,7 +121,7 @@ export class VaultRepository {
 			await tx.put("meta", meta);
 			await this.maintenance.request("flush", tx);
 
-			for (const item of await this.files()) {
+			for (const item of await this.files(tx)) {
 				if (!isExcluded(item.file.path, exclusions)) {
 					await tx.put(`dirty:${item.file.path}`, meta.revision);
 				}
@@ -162,7 +162,7 @@ export class VaultRepository {
 
 	async markFlushed(revision: number, paths: string[]): Promise<void> {
 		await this.storage.transaction(async (tx) => {
-			const latest = await this.meta();
+			const latest = await this.meta(tx);
 			await tx.put("meta", { ...latest, r2Revision: revision });
 
 			for (const path of paths) {

@@ -11,6 +11,8 @@ function createAccount() {
 	const storage = {
 		get: async (key: string) => records.get(key),
 		put: async (key: string, value: unknown) => records.set(key, value),
+		list: async ({ prefix }: { prefix: string }) =>
+			new Map([...records].filter(([key]) => key.startsWith(prefix))),
 		transaction: async (callback: (tx: unknown) => Promise<unknown>) => await callback(storage),
 	} as unknown as DurableObjectStorage;
 	const account = new Account({ storage } as DurableObjectState, {} as Env);
@@ -38,19 +40,20 @@ describe("account request validation", () => {
 		expect(response.status).toBe(200);
 		expect(await response.json()).toEqual({ id, name: "Laptop", revoked: false });
 
-		const persisted = await app.request(`/devices/${id}`);
+		const persisted = await app.request("/devices");
 
-		expect(await persisted.json()).toEqual({ id, name: "Laptop", revoked: false });
+		expect(await persisted.json()).toEqual([{ id, name: "Laptop", revoked: false }]);
 	});
 
 	it("rejects malformed device IDs before calling the account", async () => {
 		const app = createAccount();
-		const response = await app.request("/devices/invalid");
+		const response = await app.request("/devices/invalid", { method: "DELETE" });
 
 		expect(response.status).toBe(400);
 	});
 
 	it.each([
+		["/devices/id", "GET"],
 		["/devices/id", "PUT"],
 		["/devices/id/extra", "GET"],
 		["/vaults/id", "DELETE"],

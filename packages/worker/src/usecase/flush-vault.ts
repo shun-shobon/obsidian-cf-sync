@@ -7,6 +7,13 @@ import type { VaultMaintenance } from "../infra/vault-maintenance";
 import type { VaultRepository } from "../infra/vault-repository";
 import type { VaultSockets } from "../infra/vault-sockets";
 
+interface FlushSnapshot {
+	meta: VaultMeta;
+	files: StoredFile[];
+	paths: string[];
+	writes: StoredFile[];
+}
+
 export class FlushVault {
 	constructor(
 		private readonly repository: VaultRepository,
@@ -18,45 +25,14 @@ export class FlushVault {
 
 	async execute(): Promise<void> {
 		try {
-			const snapshot = await this.serial(async () => {
-				await this.sockets.expire();
-				if (!(await this.maintenance.due("flush"))) {
-					return null;
-				}
-				const meta = await this.repository.meta();
-				const files = await this.repository.files();
-				const paths = await this.repository.dirtyPaths();
-				const writes: StoredFile[] = [];
-				for (const path of paths) {
-					const stored = files.find((item) => item.file.path === path);
-					if (stored && !isExcluded(path, meta.exclusions)) {
-						writes.push(stored);
-					}
-				}
-				return { meta, files, paths, writes };
-			});
+			const snapshot = await this.serial(() => this.takeSnapshot());
+
 			if (snapshot) {
-				const written = await this.writeFiles(snapshot.meta, snapshot.writes);
-				if (written) {
-					await this.deleteFiles(snapshot.meta, snapshot.files, snapshot.paths);
-				}
-				await this.serial(async () => {
-					if (written) {
-						await this.repository.markFlushed(snapshot.meta.revision, snapshot.paths);
-						this.sockets.broadcast({ type: "r2", revision: snapshot.meta.revision });
-					}
-					const latest = await this.repository.meta();
-					if (written && latest.revision === snapshot.meta.revision) {
-						await this.maintenance.complete("flush", null);
-					} else {
-						await this.maintenance.complete("flush", Date.now() + FLUSH_INTERVAL_MS);
-					}
-				});
+				await this.flush(snapshot);
 			}
+
 			await this.serial(async () => {
-				if (await this.maintenance.due("blobs")) {
-					await this.collectBlobs();
-				}
+				await this.collectBlobsIfDue();
 				await this.maintenance.schedule();
 			});
 		} catch (error) {
@@ -66,24 +42,84 @@ export class FlushVault {
 		}
 	}
 
+	private async takeSnapshot(): Promise<FlushSnapshot | null> {
+		await this.sockets.expire();
+
+		if (!(await this.maintenance.due("flush"))) {
+			return null;
+		}
+
+		const meta = await this.repository.meta();
+		const files = await this.repository.files();
+		const paths = await this.repository.dirtyPaths();
+		const writes: StoredFile[] = [];
+
+		for (const path of paths) {
+			const stored = files.find((item) => item.file.path === path);
+
+			if (stored && !isExcluded(path, meta.exclusions)) {
+				writes.push(stored);
+			}
+		}
+
+		return { meta, files, paths, writes };
+	}
+
+	private async flush(snapshot: FlushSnapshot): Promise<void> {
+		const written = await this.writeFiles(snapshot.meta, snapshot.writes);
+
+		if (written) {
+			await this.deleteFiles(snapshot.meta, snapshot.files, snapshot.paths);
+		}
+
+		await this.serial(() => this.finish(snapshot, written));
+	}
+
+	private async finish(snapshot: FlushSnapshot, written: boolean): Promise<void> {
+		const { revision } = snapshot.meta;
+
+		if (written) {
+			await this.repository.markFlushed(revision, snapshot.paths);
+			this.sockets.broadcast({ type: "r2", revision });
+		}
+
+		const latest = await this.repository.meta();
+
+		if (written && latest.revision === revision) {
+			await this.maintenance.complete("flush", null);
+			return;
+		}
+
+		await this.maintenance.complete("flush", Date.now() + FLUSH_INTERVAL_MS);
+	}
+
 	private async writeFiles(meta: VaultMeta, writes: StoredFile[]): Promise<boolean> {
 		for (const stored of writes) {
 			const content = await this.serial(async () => {
 				const current = await this.repository.findFile(stored.file.id);
+
 				if (!current || current.file.revision !== stored.file.revision) {
 					return null;
 				}
+
 				return await this.repository.content(current);
 			});
+
 			if (!content) {
 				return false;
 			}
+
 			await this.archive.write(meta.vaultId, stored.file.path, content);
 		}
+
 		return true;
 	}
 
-	private async collectBlobs(): Promise<void> {
+	private async collectBlobsIfDue(): Promise<void> {
+		if (!(await this.maintenance.due("blobs"))) {
+			return;
+		}
+
 		const meta = await this.repository.meta();
 		const files = await this.repository.files();
 		const referenced = new Set<string>();

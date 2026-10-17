@@ -3,10 +3,12 @@ import * as v from "valibot";
 import { idSchema } from "./identity";
 import { nonNegativeIntegerSchema } from "./numbers";
 
+export const digestSchema = v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/u));
+
 export const blobSchema = v.object({
 	key: idSchema,
 	size: nonNegativeIntegerSchema,
-	digest: v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/u)),
+	digest: digestSchema,
 });
 
 const textContentSchema = v.object({

@@ -15,6 +15,9 @@ const ja = {
 } satisfies Record<keyof typeof en, string>;
 
 const resources = { en: { callback: en }, ja: { callback: ja } };
+
+type Locale = keyof typeof resources;
+
 const i18n = createInstance();
 
 void i18n.init({
@@ -24,19 +27,24 @@ void i18n.init({
 	ns: ["callback"],
 	defaultNS: "callback",
 	resources,
-	interpolation: { escapeValue: false },
 });
 
 export function getOAuthCallbackMessages(c: Context) {
-	const acceptedLanguage = accepts(c, {
+	const locale = preferredLocale(c);
+
+	return { locale, t: i18n.getFixedT(locale, "callback") };
+}
+
+function preferredLocale(c: Context): Locale {
+	const accepted = accepts(c, {
 		header: "Accept-Language",
-		supports: ["en", "ja"],
+		supports: Object.keys(resources),
 		default: "en",
 		match: (languages, config) => {
 			for (const language of languages) {
 				const base = language.type.toLowerCase().split("-")[0];
 
-				if (language.q > 0 && (base === "ja" || base === "en")) {
+				if (language.q > 0 && isLocale(base)) {
 					return base;
 				}
 			}
@@ -44,11 +52,14 @@ export function getOAuthCallbackMessages(c: Context) {
 			return config.default;
 		},
 	});
-	let locale: keyof typeof resources = "en";
 
-	if (acceptedLanguage === "ja") {
-		locale = "ja";
+	if (isLocale(accepted)) {
+		return accepted;
 	}
 
-	return { locale, t: i18n.getFixedT(locale, "callback") };
+	return "en";
+}
+
+function isLocale(value: string | undefined): value is Locale {
+	return value !== undefined && Object.hasOwn(resources, value);
 }

@@ -103,7 +103,6 @@ function setup() {
 		operation,
 		vaultId,
 		deviceId,
-		fetch: (request: Request) => vault.fetch(request),
 		fail: (value: boolean) => {
 			fail = value;
 		},
@@ -340,25 +339,6 @@ it("fails closed without Access configuration or a signed assertion", async () =
 });
 
 describe("Durable Object RPC", () => {
-	it.each([
-		["/snapshot", "POST"],
-		["/operations", "PUT"],
-		["/ws", "POST"],
-		["/revoke", "GET"],
-		["/snapshot/extra", "GET"],
-		["/files", "GET"],
-	])("rejects %s with method %s", async (path, method) => {
-		const s = setup();
-		const response = await s.fetch(
-			new Request(`https://internal${path}`, {
-				method,
-				headers: { "X-Vault-Id": s.vaultId, "X-Device-Id": s.deviceId },
-			}),
-		);
-		expect(response.status).toBe(404);
-		expect(await response.json()).toEqual({ error: "Not found" });
-	});
-
 	it("revokes without vault headers and rejects subsequent authenticated operations", async () => {
 		const s = setup();
 		await s.revoke();
@@ -382,6 +362,12 @@ describe("Durable Object RPC", () => {
 		},
 	);
 
+	it("returns only public snapshot fields", async () => {
+		const s = setup();
+
+		expect(await s.snapshot()).toEqual({ revision: 0, r2Revision: 0, files: [], exclusions: [] });
+	});
+
 	it("reads the latest metadata for every request", async () => {
 		const s = setup();
 		await s.operation(create("first.md", "first"));
@@ -398,13 +384,12 @@ describe("Durable Object RPC", () => {
 		const device = { id: crypto.randomUUID(), name: "Laptop" };
 
 		expect(unwrapRpcResult(await account.registerDevice(device))).toMatchObject(device);
-		expect(unwrapRpcResult(await account.device(device.id))).toMatchObject(device);
 
 		const vault = { id: crypto.randomUUID(), name: "Notes" };
 
 		expect(unwrapRpcResult(await account.createVault(vault))).toEqual(vault);
 		expect(unwrapRpcResult(await account.vault(vault.id))).toEqual(vault);
-		expect(unwrapRpcResult(await account.devices())).toHaveLength(1);
+		expect(unwrapRpcResult(await account.devices())).toEqual([{ ...device, revoked: false }]);
 		expect(unwrapRpcResult(await account.vaults())).toEqual([vault]);
 	});
 });
@@ -528,6 +513,30 @@ describe("realtime synchronization", () => {
 		);
 		await s.alarm();
 		expect(s.objects.get(`vaults/${s.vaultId}/files/live.md`)).toBe("base live");
+	});
+
+	it("logs WS operations without paths or content", async () => {
+		const s = setup();
+		await s.snapshot();
+		const ws = socket(s.deviceId);
+		const op = create("private.md", "secret");
+		const logged = vi.spyOn(console, "info").mockImplementation(() => {});
+
+		await s.message(
+			ws as unknown as WebSocket,
+			JSON.stringify({ type: "operation", operation: op }),
+		);
+
+		expect(logged).toHaveBeenCalledExactlyOnceWith({
+			event: "sync.operation.completed",
+			vaultId: s.vaultId,
+			deviceId: s.deviceId,
+			operationId: op.opId,
+			operationType: "create",
+			revision: 1,
+			conflict: false,
+		});
+		logged.mockRestore();
 	});
 
 	it("retains the deleted CRDT base for an offline delta after deletion and restart", async () => {

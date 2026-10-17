@@ -1,16 +1,16 @@
-import { idSchema, pathSchema } from "@cf-sync/protocol";
+import { digestSchema, idSchema, pathSchema } from "@cf-sync/protocol";
 import { Hono } from "hono";
 import * as v from "valibot";
 
 import type { Vault } from "../durable-objects/vault";
+import { ownerAccount } from "../env";
 import type { Env } from "../env";
 import { unwrapRpcResult } from "../rpc-result";
+import type { RpcResult } from "../rpc-result";
 
 const exclusionsSchema = v.object({
 	exclusions: v.pipe(v.array(pathSchema), v.maxLength(1000)),
 });
-
-const digestSchema = v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/u));
 
 type VaultContext = {
 	Bindings: Env;
@@ -21,12 +21,16 @@ type VaultContext = {
 	};
 };
 
+function jsonStreamResponse(result: RpcResult<ReadableStream<Uint8Array>>): Response {
+	return new Response(unwrapRpcResult(result), { headers: { "Content-Type": "application/json" } });
+}
+
 export const vaultApiRoutes = new Hono<VaultContext>();
 
 vaultApiRoutes.use("*", async (c, next) => {
 	const vaultId = v.parse(idSchema, c.req.param("vaultId"));
 	const deviceId = v.parse(idSchema, c.req.header("X-Device-Id"));
-	const account = c.env.ACCOUNT.getByName("owner");
+	const account = ownerAccount(c.env);
 	unwrapRpcResult(await account.authorizeVaultAccess(deviceId, vaultId));
 
 	c.set("vaultId", vaultId);
@@ -39,9 +43,7 @@ vaultApiRoutes.get("/snapshot", async (c) => {
 	const vault = c.get("vault");
 	const result = await vault.snapshot(c.get("vaultId"), c.get("deviceId"));
 
-	return new Response(unwrapRpcResult(result), {
-		headers: { "Content-Type": "application/json" },
-	});
+	return jsonStreamResponse(result);
 });
 
 vaultApiRoutes.post("/operations", async (c) => {
@@ -56,9 +58,7 @@ vaultApiRoutes.get("/files/:id", async (c) => {
 	const vault = c.get("vault");
 	const result = await vault.document(c.get("vaultId"), c.get("deviceId"), id);
 
-	return new Response(unwrapRpcResult(result), {
-		headers: { "Content-Type": "application/json" },
-	});
+	return jsonStreamResponse(result);
 });
 
 vaultApiRoutes.put("/exclusions", async (c) => {
@@ -66,9 +66,7 @@ vaultApiRoutes.put("/exclusions", async (c) => {
 	const vault = c.get("vault");
 	const result = await vault.setExclusions(c.get("vaultId"), c.get("deviceId"), exclusions);
 
-	return new Response(unwrapRpcResult(result), {
-		headers: { "Content-Type": "application/json" },
-	});
+	return jsonStreamResponse(result);
 });
 
 vaultApiRoutes.post("/tickets", async (c) => {
@@ -88,7 +86,7 @@ vaultApiRoutes.post("/tickets", async (c) => {
 	url.searchParams.set("ticket", ticket.ticket);
 	c.header("Cache-Control", "no-store");
 
-	return c.json({ url: url.href, expiresAt: ticket.expiresAt });
+	return c.json({ url: url.href });
 });
 
 vaultApiRoutes.get("/blobs/:id", async (c) => {

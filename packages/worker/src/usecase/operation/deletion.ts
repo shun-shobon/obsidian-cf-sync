@@ -1,28 +1,23 @@
 import type { Operation } from "@cf-sync/protocol";
 import { toUint8Array } from "js-base64";
 
-import type { FileWrite, OperationChanges, StoredFile, VaultMeta } from "../../domain/vault-state";
+import type { FileWrite, OperationOutcome, OperationState } from "../../domain/vault-state";
 import type { VaultRepository } from "../../infra/vault-repository";
 import { allocateConflictPath } from "../../service/path-conflicts";
 
 export async function applyDeletion(
 	operation: Extract<Operation, { type: "delete" }>,
-	current: StoredFile | undefined,
-	files: StoredFile[],
-	meta: VaultMeta,
-	changes: OperationChanges,
+	{ current, files, nextRevision }: OperationState,
 	repository: VaultRepository,
-): Promise<void> {
+): Promise<OperationOutcome> {
 	if (!current) {
-		return;
+		return { file: null };
 	}
 
-	meta.revision++;
-	changes.removed = current;
-	changes.dirty.add(current.file.path);
+	const dirty = new Set([current.file.path]);
 
 	if (operation.baseRevision === current.file.revision) {
-		return;
+		return { file: null, changes: { writes: [], dirty, removed: current } };
 	}
 
 	const id = crypto.randomUUID();
@@ -30,8 +25,8 @@ export async function applyDeletion(
 		...current.file,
 		id,
 		path: allocateConflictPath(current.file.path, files, id),
-		revision: meta.revision,
-		pathRevision: meta.revision,
+		revision: nextRevision,
+		pathRevision: nextRevision,
 		conflict: true,
 	};
 	const write: FileWrite = { stored: { ...current, file } };
@@ -40,9 +35,11 @@ export async function applyDeletion(
 		write.update = toUint8Array(await repository.textUpdate(current));
 	}
 
-	changes.writes.push(write);
-	changes.dirty.add(file.path);
-	changes.result.file = file;
-	changes.result.conflict = true;
-	changes.result.conflictReason = "edit-preserved";
+	dirty.add(file.path);
+
+	return {
+		file,
+		conflictReason: "edit-preserved",
+		changes: { writes: [write], dirty, removed: current },
+	};
 }

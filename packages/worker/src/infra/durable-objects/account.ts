@@ -29,10 +29,6 @@ export class Account extends DurableObject<Env> {
 		});
 	}
 
-	device(id: string): Promise<RpcResult<Device>> {
-		return rpcResult(() => this.activeDevice(id));
-	}
-
 	authorizeVaultAccess(deviceId: string, vaultId: string): Promise<RpcResult<void>> {
 		return rpcResult(async () => {
 			await this.activeDevice(deviceId);
@@ -46,7 +42,12 @@ export class Account extends DurableObject<Env> {
 			await this.repository.revoke(device);
 
 			const vaults = await this.repository.vaults();
-			await Promise.all(vaults.map((vault) => this.closeDeviceConnections(vault.id, id)));
+			await Promise.all(
+				vaults.map(async (vault) => {
+					const result = await this.env.VAULTS.getByName(vault.id).revokeDevice(id);
+					unwrapRpcResult(result);
+				}),
+			);
 			console.info({ event: "device.revoked", deviceId: id });
 		});
 	}
@@ -76,11 +77,5 @@ export class Account extends DurableObject<Env> {
 		}
 
 		return device;
-	}
-
-	private async closeDeviceConnections(vaultId: string, deviceId: string): Promise<void> {
-		const vault = this.env.VAULTS.getByName(vaultId);
-
-		unwrapRpcResult(await vault.revokeDevice(deviceId));
 	}
 }

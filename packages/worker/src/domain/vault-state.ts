@@ -24,11 +24,26 @@ export interface FileWrite {
 	update?: Uint8Array;
 }
 
-export interface OperationChanges {
-	result: OperationResult;
+export interface FileChanges {
 	writes: FileWrite[];
 	dirty: Set<string>;
 	removed?: StoredFile;
+}
+
+export interface OperationChanges extends FileChanges {
+	result: OperationResult;
+}
+
+export interface OperationState {
+	current: StoredFile | undefined;
+	files: StoredFile[];
+	nextRevision: number;
+}
+
+export interface OperationOutcome {
+	file: FileRecord | null;
+	conflictReason?: NonNullable<OperationResult["conflictReason"]>;
+	changes?: FileChanges;
 }
 
 export const TEXT_CHUNK_SIZE = 64_000;

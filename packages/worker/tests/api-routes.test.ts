@@ -77,7 +77,6 @@ describe("Public API routes", () => {
 		expect(response.headers.get("Cache-Control")).toBe("no-store");
 		expect(await response.json()).toEqual({
 			url: `wss://sync.test/ws?vault=${s.vaultId}&ticket=secret`,
-			expiresAt: 123,
 		});
 	});
 });

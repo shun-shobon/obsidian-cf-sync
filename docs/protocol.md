@@ -39,7 +39,7 @@ WebSocketはサーバーからの変更通知に使う。編集は250ms単位で
 | `PUT /api/vaults/:id/blobs/:uuid`   | 生バイト列を転送し、`BlobRef`を返す                      |
 | `GET /api/vaults/:id/blobs/:uuid`   | 添付の生バイト列                                         |
 | `PUT /api/vaults/:id/exclusions`    | `{exclusions:string[]}`で共有除外を更新                  |
-| `POST /api/vaults/:id/tickets`      | 完全な接続URLと有効期限を返す                            |
+| `POST /api/vaults/:id/tickets`      | 完全な接続URLを返す                                      |
 | `GET /ws?vault=uuid&ticket=secret`  | WebSocketへ接続                                          |
 
 添付PUTには`X-Content-Digest`（SHA-256）と`X-Content-Size`（バイト数）を付ける。サーバーは内容と長さを検証し、確定した長さのストリームとしてR2へ書く。同じID・同じ内容の再送は認め、異なる内容でのID再利用を拒否する。20MBをアプリケーションの上限にはしない。
