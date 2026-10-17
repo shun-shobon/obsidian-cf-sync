@@ -9,7 +9,7 @@ import { collaborationExtension } from "./collaboration-extension";
 import { presenceExtension } from "./presence-extension";
 
 export interface EditorDocuments {
-	ensureDoc(path: string): Promise<Y.Doc | undefined>;
+	ensureDoc(path: string, attach: (doc: Y.Doc) => boolean): Promise<Y.Doc | undefined>;
 	releaseDoc(doc: Y.Doc): void;
 	getDoc(path: string): Y.Doc | undefined;
 	getAwareness(doc: Y.Doc): Awareness | undefined;
@@ -91,16 +91,12 @@ export class EditorBinding {
 			return;
 		}
 
-		const doc = await engine.ensureDoc(path);
+		await engine.ensureDoc(path, (doc) => this.attach(engine, path, doc));
+	}
 
-		if (!doc) {
-			return;
-		}
-
+	private attach(engine: EditorDocuments, path: string, doc: Y.Doc): boolean {
 		if (!this.canAttach(engine, path, doc)) {
-			engine.releaseDoc(doc);
-
-			return;
+			return false;
 		}
 
 		this.doc = doc;
@@ -111,6 +107,8 @@ export class EditorBinding {
 				presenceExtension(doc, engine),
 			]),
 		});
+
+		return true;
 	}
 
 	private isCurrentBinding(path: string | undefined, engine: EditorDocuments | undefined): boolean {

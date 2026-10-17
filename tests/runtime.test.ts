@@ -326,14 +326,16 @@ describe("client engine against the real DO", () => {
 			expect(right.text("note.md")).toBe("base");
 			left.engine.pause();
 			right.engine.pause();
-			(await left.engine.ensureDoc("note.md"))!.getText("content").insert(0, "LEFT ");
-			(await right.engine.ensureDoc("note.md"))!.getText("content").insert(4, " RIGHT");
+			const leftText = (await left.engine.ensureDoc("note.md", () => true))!.getText("content");
+			const rightText = (await right.engine.ensureDoc("note.md", () => true))!.getText("content");
+			leftText.insert(0, "LEFT ");
+			rightText.insert(4, " RIGHT");
 			await left.engine.resume();
 			await right.engine.resume();
 			await left.engine.syncNow();
 			await right.engine.syncNow();
-			expect(left.text("note.md")).toBe("LEFT base RIGHT");
-			expect(right.text("note.md")).toBe(left.text("note.md"));
+			expect(leftText.toString()).toBe("LEFT base RIGHT");
+			expect(rightText.toString()).toBe(leftText.toString());
 			await request(mf, "/flush");
 			const bucket = await mf.getR2Bucket("BUCKET");
 			expect(await (await bucket.get(`vaults/${vaultId}/files/note.md`))!.text()).toBe(

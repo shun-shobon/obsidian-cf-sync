@@ -77,6 +77,7 @@ export class Documents {
 		return doc;
 	}
 
+	/** Ends one editor's hold immediately; `closeUnused` runs later because queued work may still use the document. */
 	release(doc: Y.Doc): void {
 		const count = this.references.get(doc);
 		if (count === undefined) {
@@ -90,6 +91,19 @@ export class Documents {
 		}
 
 		this.references.delete(doc);
+	}
+
+	isRetained(id: string): boolean {
+		const doc = this.docs.get(id);
+
+		return doc !== undefined && this.references.has(doc);
+	}
+
+	closeUnused(doc: Y.Doc): void {
+		if (this.references.has(doc)) {
+			return;
+		}
+
 		for (const [id, current] of this.docs) {
 			if (current === doc) {
 				this.remove(id);

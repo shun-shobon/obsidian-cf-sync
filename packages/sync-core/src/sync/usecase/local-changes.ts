@@ -102,10 +102,8 @@ export class LocalChanges {
 
 	async editorChanged(file: LocalFile, doc: Y.Doc): Promise<void> {
 		const bytes = encoder.encode(doc.getText("content").toString());
+		// Writing here would make Obsidian merge the file into its unsaved buffer; the editor saves it instead.
 		await this.queueContent(file, bytes, await digest(bytes), doc);
-		await this.vault.write(file.path, bytes);
-		file.diskDigest = file.digest;
-		await this.state.persist();
 	}
 
 	private async captureFile(path: string, known: LocalFile | undefined): Promise<void> {
@@ -127,29 +125,50 @@ export class LocalChanges {
 
 	private async reconcileDiskBaseline(file: LocalFile, hash: string): Promise<boolean> {
 		if (file.digest === hash) {
-			if (file.diskDigest !== hash) {
-				file.diskDigest = hash;
-				await this.state.persist();
-			}
+			await this.recordDisk(file, hash);
 
 			return true;
 		}
 
-		const hasPendingText =
-			file.kind === "text" &&
-			this.state.data.pending.some((op) => op.fileId === file.id && "content" in op);
-		const diskMatchesBaseline = hash === file.diskDigest;
-		if (!diskMatchesBaseline || !hasPendingText) {
+		if (file.kind !== "text") {
 			return false;
 		}
 
-		const doc = await this.documents.open(file);
-		const pendingTextBytes = encoder.encode(doc.getText("content").toString());
-		await this.vault.write(file.path, pendingTextBytes);
-		file.diskDigest = file.digest;
-		await this.state.persist();
+		// An editor save can be older than the document. Obsidian merges external writes into the
+		// editor itself, so they reach the document through the editor binding.
+		if (this.documents.isRetained(file.id)) {
+			await this.recordDisk(file, hash);
 
-		return true;
+			return true;
+		}
+
+		// The editor never saved the document's latest text, e.g. Obsidian quit first. Capturing
+		// the older disk text would revert edits that may already be sent.
+		if (hash === file.diskDigest) {
+			await this.restoreDisk(file);
+
+			return true;
+		}
+
+		return false;
+	}
+
+	private async recordDisk(file: LocalFile, hash: string): Promise<void> {
+		if (file.diskDigest === hash) {
+			return;
+		}
+
+		file.diskDigest = hash;
+		await this.state.persist();
+	}
+
+	private async restoreDisk(file: LocalFile): Promise<void> {
+		const borrowed = await this.documents.borrow(file);
+		const bytes = encoder.encode(borrowed.doc.getText("content").toString());
+		borrowed.release();
+		await this.vault.write(file.path, bytes);
+		file.diskDigest = await digest(bytes);
+		await this.state.persist();
 	}
 
 	private addFile(path: string, hash: string): LocalFile {

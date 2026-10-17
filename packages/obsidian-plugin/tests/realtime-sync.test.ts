@@ -103,7 +103,9 @@ it("converges five continuously editing devices without manual synchronization",
 	const clients = Array.from({ length: 5 }, (_, index) => client(hub, `device-${index}`));
 	await clients[0]!.vault.write("note.md", encode("base"));
 	for (const { engine } of clients) await engine.start();
-	const docs = await Promise.all(clients.map(({ engine }) => engine.ensureDoc("note.md")));
+	const docs = await Promise.all(
+		clients.map(({ engine }) => engine.ensureDoc("note.md", () => true)),
+	);
 	for (let round = 0; round < 4; round++) {
 		docs.forEach((doc, index) => doc!.getText("content").insert(0, `[${index}:${round}]`));
 		await new Promise((resolve) => {
@@ -113,8 +115,8 @@ it("converges five continuously editing devices without manual synchronization",
 	await vi.waitFor(
 		async () => {
 			const expected = [...hub.server.docs.values()][0]!.doc.getText("content").toString();
-			for (const { vault, store } of clients) {
-				expect(vault.text("note.md")).toBe(expected);
+			for (const [index, { store }] of clients.entries()) {
+				expect(docs[index]!.getText("content").toString()).toBe(expected);
 				expect((await store.load())!.pending).toHaveLength(0);
 			}
 			for (let device = 0; device < 5; device++)
@@ -129,7 +131,7 @@ it("persists new local edits while the previous operation is awaiting its respon
 	const { engine, vault, store } = client(hub, "writer");
 	await vault.write("note.md", encode("base"));
 	await engine.start();
-	const doc = (await engine.ensureDoc("note.md"))!;
+	const doc = (await engine.ensureDoc("note.md", () => true))!;
 	const entered = deferred(),
 		release = deferred();
 	hub.beforeEdit = async () => {
@@ -140,7 +142,6 @@ it("persists new local edits while the previous operation is awaiting its respon
 	await entered.promise;
 	doc.getText("content").insert(5, "B");
 	await vi.waitFor(async () => {
-		expect(vault.text("note.md")).toBe("baseAB");
 		expect((await store.load())!.pending.length).toBeGreaterThanOrEqual(2);
 	});
 	release.resolve();
@@ -154,8 +155,8 @@ it("keeps text and cursor updates moving while an attachment upload is held", as
 	await first.vault.write("note.md", encode("base"));
 	await first.engine.start();
 	await second.engine.start();
-	const doc = (await first.engine.ensureDoc("note.md"))!;
-	const remote = (await second.engine.ensureDoc("note.md"))!;
+	const doc = (await first.engine.ensureDoc("note.md", () => true))!;
+	const remote = (await second.engine.ensureDoc("note.md", () => true))!;
 	first.engine.getAwareness(doc);
 	const awareness = second.engine.getAwareness(remote)!;
 	const entered = deferred(),
@@ -171,7 +172,7 @@ it("keeps text and cursor updates moving while an attachment upload is held", as
 	doc.getText("content").insert(4, "live");
 	first.engine.setSelection({}, doc, 2, 3);
 	await vi.waitFor(() => {
-		expect(second.vault.text("note.md")).toBe("baselive");
+		expect(remote.getText("content").toString()).toBe("baselive");
 		expect((awareness.getStates().get(doc.clientID) as { user: { name: string } }).user.name).toBe(
 			"first",
 		);
@@ -187,7 +188,7 @@ it("opens a new editing document and receives text while an attachment download 
 	await first.vault.write("note.md", encode("base"));
 	await first.engine.start();
 	await second.engine.start();
-	const doc = (await first.engine.ensureDoc("note.md"))!;
+	const doc = (await first.engine.ensureDoc("note.md", () => true))!;
 	const bytes = new Uint8Array([1, 2, 3]);
 	const hash = await digest(bytes);
 	const document = second.api.document.bind(second.api);
@@ -216,14 +217,15 @@ it("opens a new editing document and receives text while an attachment download 
 	};
 	hub.peers.get("second")!({ type: "changed", fileId: "image", revision: hub.server.revision + 1 });
 	await entered.promise;
-	const newPane = second.engine.ensureDoc("note.md");
+	const newPane = second.engine.ensureDoc("note.md", () => true);
 	let bound = false;
 	void newPane.then(() => {
 		bound = true;
 	});
 	await vi.waitFor(() => expect(bound).toBe(true), { timeout: 500 });
 	doc.getText("content").insert(4, "live");
-	await vi.waitFor(() => expect(second.vault.text("note.md")).toBe("baselive"));
+	const remote = (await newPane)!;
+	await vi.waitFor(() => expect(remote.getText("content").toString()).toBe("baselive"));
 	release.resolve();
 });
 
@@ -258,8 +260,7 @@ it("recovers a skipped text delta through full reconciliation after a disk write
 	await first.vault.write("note.md", encode("base"));
 	await first.engine.start();
 	await second.engine.start();
-	const doc = (await first.engine.ensureDoc("note.md"))!;
-	await second.engine.ensureDoc("note.md");
+	const doc = (await first.engine.ensureDoc("note.md", () => true))!;
 	const document = vi.spyOn(second.api, "document");
 	const write = second.vault.writeIfUnchanged.bind(second.vault);
 	let interrupted = false;
@@ -278,7 +279,7 @@ it("recovers a skipped text delta through full reconciliation after a disk write
 			expect(document).toHaveBeenCalled();
 			expect(second.vault.text("note.md")).toContain("remote");
 			expect(second.vault.text("note.md")).toContain("-local");
-			expect(first.vault.text("note.md")).toBe(second.vault.text("note.md"));
+			expect(doc.getText("content").toString()).toBe(second.vault.text("note.md"));
 			expect((await second.store.load())!.pending).toHaveLength(0);
 		},
 		{ timeout: 5_000 },
@@ -292,8 +293,8 @@ it("delivers updates before continuous 20 ms typing stops without refetching doc
 	await first.vault.write("note.md", encode("base"));
 	await first.engine.start();
 	await second.engine.start();
-	const doc = (await first.engine.ensureDoc("note.md"))!;
-	await second.engine.ensureDoc("note.md");
+	const doc = (await first.engine.ensureDoc("note.md", () => true))!;
+	const remote = (await second.engine.ensureDoc("note.md", () => true))!;
 	// Drain the initial create notification's reconciliation reservation.
 	await new Promise((resolve) => {
 		setTimeout(resolve, 150);
@@ -309,10 +310,12 @@ it("delivers updates before continuous 20 ms typing stops without refetching doc
 		await new Promise((resolve) => {
 			setTimeout(resolve, 20);
 		});
-		if (index < 19 && second.vault.text("note.md") !== "base") receivedDuringTyping = true;
+		if (index < 19 && remote.getText("content").toString() !== "base") receivedDuringTyping = true;
 	}
 	expect(receivedDuringTyping).toBe(true);
-	await vi.waitFor(() => expect(second.vault.text("note.md")).toBe(`base${"x".repeat(20)}`));
+	await vi.waitFor(() =>
+		expect(remote.getText("content").toString()).toBe(`base${"x".repeat(20)}`),
+	);
 	expect(firstSnapshot).not.toHaveBeenCalled();
 	expect(secondSnapshot).not.toHaveBeenCalled();
 	expect(firstDocument).not.toHaveBeenCalled();
@@ -324,7 +327,7 @@ it("sends a one-character edit to a 100 KB note as less than one percent of its 
 	const { engine, vault, store } = client(hub, "writer");
 	await vault.write("note.md", encode("a".repeat(100_000)));
 	await engine.start();
-	const doc = (await engine.ensureDoc("note.md"))!;
+	const doc = (await engine.ensureDoc("note.md", () => true))!;
 	const created = hub.server.operations.find((operation) => operation.type === "create");
 	expect(created?.type).toBe("create");
 	if (created?.type !== "create" || created.content.kind !== "text")

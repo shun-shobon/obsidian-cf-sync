@@ -62,9 +62,10 @@ export class ReceiveFile {
 			return true;
 		}
 
+		const inEditor = this.heldByEditor(existing);
 		const disk = await this.readDisk(existing?.path ?? remote.path);
 
-		if (await this.captureLocalChange(existing, remote, disk)) {
+		if (await this.captureLocalChange(existing, remote, disk, inEditor)) {
 			return false;
 		}
 
@@ -75,6 +76,14 @@ export class ReceiveFile {
 		}
 
 		const occupied = await this.preparePath(local, remote);
+		// The editor may have detached while this task awaited; then the file needs the write below.
+		if (this.heldByEditor(existing)) {
+			await this.commitReceived(existing, local, fetched, content, local.diskDigest);
+			content.borrowed?.release();
+
+			return true;
+		}
+
 		let expected = disk;
 		if (occupied) {
 			expected = undefined;
@@ -89,10 +98,14 @@ export class ReceiveFile {
 			return false;
 		}
 
-		await this.commitReceived(existing, local, fetched, content);
+		await this.commitReceived(existing, local, fetched, content, content.digest);
 		content.borrowed?.release();
 
 		return true;
+	}
+
+	private heldByEditor(local: LocalFile | undefined): local is LocalFile {
+		return local?.kind === "text" && this.documents.isRetained(local.id);
 	}
 
 	private async readDisk(path: string): Promise<DiskFile | undefined> {
@@ -109,6 +122,7 @@ export class ReceiveFile {
 		local: LocalFile | undefined,
 		remote: FileRecord,
 		disk: DiskFile | undefined,
+		inEditor: boolean,
 	): Promise<boolean> {
 		if (!disk) {
 			if (!local) {
@@ -118,6 +132,11 @@ export class ReceiveFile {
 			await this.changes.delete(local.path);
 
 			return true;
+		}
+
+		// The disk lags behind the editor until Obsidian saves, so it cannot show a local change.
+		if (inEditor) {
+			return false;
 		}
 
 		const baseline = local ?? remote;
@@ -223,6 +242,7 @@ export class ReceiveFile {
 		local: LocalFile,
 		fetched: FetchedFile,
 		content: PreparedContent,
+		diskDigest: string,
 	): Promise<void> {
 		const remote = fetched.file;
 		if (!existing) {
@@ -236,7 +256,7 @@ export class ReceiveFile {
 
 		Object.assign(local, remote, {
 			digest: content.digest,
-			diskDigest: content.digest,
+			diskDigest,
 			documentRevision: remote.revision,
 		});
 		if (remote.conflict) {

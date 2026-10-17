@@ -229,7 +229,7 @@ describe("presence with an invalid peer cursor", () => {
 		await vault.write("note.md", new TextEncoder().encode("base"));
 		await engine.start();
 
-		const doc = (await engine.ensureDoc("note.md"))!;
+		const doc = (await engine.ensureDoc("note.md", () => true))!;
 		const fileId = [...server.docs.keys()][0]!;
 		deliver!({ ...peerPresence(doc, fileId), cursor: brokenCursor });
 		doc.getText("content").insert(4, " edited");

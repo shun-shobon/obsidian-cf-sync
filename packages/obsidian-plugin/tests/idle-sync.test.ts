@@ -57,7 +57,7 @@ function setup() {
 // The serial queue is also used by editor loading, so awaiting it observes queued work
 // without initiating synchronization or adding a timer.
 async function settled(engine: SyncEngine) {
-	await engine.ensureDoc("missing.md");
+	await engine.ensureDoc("missing.md", () => true);
 }
 
 it("keeps an idle connection for an hour without network requests", async () => {

@@ -158,14 +158,26 @@ export class SyncEngine {
 		return this.documents.get(file.id);
 	}
 
-	async ensureDoc(path: string): Promise<Y.Doc | undefined> {
+	/**
+	 * Retains the document only if `attach` binds an editor to it within the same queued step.
+	 * Queued work skips disk writes for retained documents, so it must never see one whose editor holds other text.
+	 */
+	async ensureDoc(path: string, attach: (doc: Y.Doc) => boolean): Promise<Y.Doc | undefined> {
 		return await this.session.enqueue(async () => {
 			const file = this.syncedFileByPath(path);
 			if (file?.kind !== "text") {
 				return undefined;
 			}
 
-			return await this.documents.retain(file);
+			const doc = await this.documents.retain(file);
+			if (attach(doc)) {
+				return doc;
+			}
+
+			this.documents.release(doc);
+			this.documents.closeUnused(doc);
+
+			return undefined;
 		});
 	}
 
@@ -194,9 +206,11 @@ export class SyncEngine {
 		this.presence.clearSelection(owner);
 	}
 
+	/** Call when the editor detaches, so queued remote updates write the file instead of waiting for an editor save. */
 	releaseDoc(doc: Y.Doc): void {
+		this.documents.release(doc);
 		void this.session
-			.enqueue(() => this.documents.release(doc))
+			.enqueue(() => this.documents.closeUnused(doc))
 			.catch((error: unknown) => this.state.emit("error", error));
 	}
 
