@@ -4,15 +4,11 @@ import { dirname, join } from "node:path";
 
 import type { VaultPort } from "@cf-sync/sync-core/sync/ports/vault-port";
 
-import { hasErrorCode } from "./error-code";
+import { ifExists } from "./error-code";
 import { resolveVaultPath } from "./vault-path";
 
 export class FileVault implements VaultPort {
-	constructor(readonly root: string) {}
-
-	async safePath(path: string): Promise<string> {
-		return await resolveVaultPath(this.root, path);
-	}
+	constructor(private readonly root: string) {}
 
 	async list(): Promise<string[]> {
 		const paths = await listFiles(this.root, "");
@@ -23,13 +19,7 @@ export class FileVault implements VaultPort {
 	}
 
 	async exists(path: string): Promise<boolean> {
-		const stat = await lstat(await this.safePath(path)).catch((error: unknown) => {
-			if (hasErrorCode(error, "ENOENT")) {
-				return undefined;
-			}
-
-			throw error;
-		});
+		const stat = await ifExists(lstat(await this.safePath(path)));
 
 		return stat?.isFile() === true;
 	}
@@ -58,13 +48,7 @@ export class FileVault implements VaultPort {
 		expected: Uint8Array | undefined,
 		bytes: Uint8Array,
 	): Promise<boolean> {
-		const current = await this.read(path).catch((error: unknown) => {
-			if (hasErrorCode(error, "ENOENT")) {
-				return undefined;
-			}
-
-			throw error;
-		});
+		const current = await ifExists(this.read(path));
 
 		if (!matchesExpected(current, expected)) {
 			return false;
@@ -86,10 +70,10 @@ export class FileVault implements VaultPort {
 		await mkdir(dirname(target), { recursive: true });
 		await rename(source, target);
 	}
-}
 
-export async function assertSupportedFiles(root: string): Promise<void> {
-	await listFiles(root, "");
+	private async safePath(path: string): Promise<string> {
+		return await resolveVaultPath(this.root, path);
+	}
 }
 
 async function listFiles(directory: string, prefix: string): Promise<string[]> {

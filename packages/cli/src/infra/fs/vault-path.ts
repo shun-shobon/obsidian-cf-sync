@@ -1,7 +1,7 @@
 import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 
-import { hasErrorCode } from "./error-code";
+import { ifExists } from "./error-code";
 import { metadataName } from "./vault-binding";
 
 export async function resolveVaultPath(root: string, path: string): Promise<string> {
@@ -17,13 +17,7 @@ export async function resolveVaultPath(root: string, path: string): Promise<stri
 
 	for (const part of parts) {
 		current = join(current, part);
-		const stat = await lstat(current).catch((error: unknown) => {
-			if (hasErrorCode(error, "ENOENT")) {
-				return undefined;
-			}
-
-			throw error;
-		});
+		const stat = await ifExists(lstat(current));
 
 		if (stat?.isSymbolicLink() === true) {
 			throw new Error(`Symbolic link is not supported: ${path}`);

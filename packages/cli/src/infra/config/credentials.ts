@@ -11,7 +11,7 @@ export function requireEnvironmentCredentials(env: NodeJS.ProcessEnv): Credentia
 	});
 }
 
-export function readEnvironmentCredentials(env: NodeJS.ProcessEnv): Credentials | undefined {
+function readEnvironmentCredentials(env: NodeJS.ProcessEnv): Credentials | undefined {
 	const hasClientId = env["CF_ACCESS_CLIENT_ID"] !== undefined;
 	const hasClientSecret = env["CF_ACCESS_CLIENT_SECRET"] !== undefined;
 

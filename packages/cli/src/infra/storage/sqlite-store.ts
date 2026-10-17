@@ -8,23 +8,7 @@ export class SqliteStore implements SyncStore {
 	private readonly db: DatabaseSync;
 
 	constructor(path: string, dryRun = false) {
-		if (dryRun && existsSync(path)) {
-			this.db = new DatabaseSync(path, { readOnly: true });
-			return;
-		}
-
-		let databasePath = path;
-
-		if (dryRun) {
-			databasePath = ":memory:";
-		}
-
-		this.db = new DatabaseSync(databasePath);
-		this.db.exec(`
-      PRAGMA journal_mode = WAL;
-      CREATE TABLE IF NOT EXISTS data (key TEXT PRIMARY KEY, value BLOB NOT NULL);
-      CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY CHECK(id = 1), value TEXT NOT NULL);
-    `);
+		this.db = openDatabase(path, dryRun);
 	}
 
 	load(): Promise<LocalState | undefined> {
@@ -80,4 +64,29 @@ export class SqliteStore implements SyncStore {
 	close(): void {
 		this.db.close();
 	}
+}
+
+function openDatabase(path: string, dryRun: boolean): DatabaseSync {
+	if (!dryRun) {
+		return createDatabase(path);
+	}
+
+	if (existsSync(path)) {
+		return new DatabaseSync(path, { readOnly: true });
+	}
+
+	// A dry run before the first sync must not leave state.sqlite behind.
+	return createDatabase(":memory:");
+}
+
+function createDatabase(path: string): DatabaseSync {
+	const db = new DatabaseSync(path);
+
+	db.exec(`
+    PRAGMA journal_mode = WAL;
+    CREATE TABLE IF NOT EXISTS data (key TEXT PRIMARY KEY, value BLOB NOT NULL);
+    CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY CHECK(id = 1), value TEXT NOT NULL);
+  `);
+
+	return db;
 }

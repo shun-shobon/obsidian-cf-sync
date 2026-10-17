@@ -5,7 +5,7 @@ import { join } from "node:path";
 import * as v from "valibot";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { bindingSchema } from "../src/domain/connection";
+import { bindingSchema } from "../src/domain/binding";
 import { resolveCredentials } from "../src/infra/config/credentials";
 import { FileVault } from "../src/infra/fs/vault-adapter";
 import { SqliteStore } from "../src/infra/storage/sqlite-store";

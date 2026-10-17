@@ -6,26 +6,20 @@ import * as v from "valibot";
 
 import { credentialsSchema } from "../../domain/credentials";
 import type { Credentials } from "../../domain/credentials";
-import { hasErrorCode } from "../fs/error-code";
+import { ifExists } from "../fs/error-code";
 
 const configSchema = v.record(v.string(), credentialsSchema);
 
 type Config = v.InferOutput<typeof configSchema>;
 
-export function configPath(env: NodeJS.ProcessEnv): string {
+function configPath(env: NodeJS.ProcessEnv): string {
 	const base = env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config");
 
 	return join(base, "obsidian-cf-sync", "config.json");
 }
 
 export async function readConfig(env: NodeJS.ProcessEnv): Promise<Config> {
-	const text = await readFile(configPath(env), "utf8").catch((error: unknown) => {
-		if (hasErrorCode(error, "ENOENT")) {
-			return undefined;
-		}
-
-		throw error;
-	});
+	const text = await ifExists(readFile(configPath(env), "utf8"));
 
 	if (text === undefined) {
 		return {};

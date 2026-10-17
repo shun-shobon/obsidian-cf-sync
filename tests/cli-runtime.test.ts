@@ -4,9 +4,9 @@ import { join } from "node:path";
 
 import { ConnectionError } from "@cf-sync/sync-core/domain/connection-error";
 import { VaultApi } from "@cf-sync/sync-core/infra/http/server-api";
-import type { SyncResult } from "@cf-sync/sync-core/sync/domain/sync-result";
 import { PlanSync } from "@cf-sync/sync-core/sync/usecase/plan-sync";
 import { SyncOnce } from "@cf-sync/sync-core/sync/usecase/sync-once";
+import type { SyncOnceOptions } from "@cf-sync/sync-core/sync/usecase/sync-once-options";
 import { build } from "esbuild";
 import { Miniflare } from "miniflare";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -96,12 +96,10 @@ async function start() {
 			crypto.randomUUID(),
 			vaultId,
 		);
-		const run = async (dryRun = false) => {
+		const withStore = async <T>(use: (ports: SyncOnceOptions) => Promise<T>) => {
 			const store = new SqliteStore(join(metadata, "state.sqlite"));
 			try {
-				return dryRun
-					? await new PlanSync({ vault, store, api }).run()
-					: await new SyncOnce({ vault, store, api }).run();
+				return await use({ vault, store, api });
 			} finally {
 				store.close();
 			}
@@ -110,7 +108,8 @@ async function start() {
 			root,
 			vault,
 			api,
-			run,
+			run: () => withStore((ports) => new SyncOnce(ports).run()),
+			plan: () => withStore((ports) => new PlanSync(ports).run()),
 			loseNextAcknowledgment: () => {
 				loseAcknowledgment = true;
 			},
@@ -225,7 +224,7 @@ describe("CLI filesystem and SQLite against the real Worker", () => {
 			pending: 0,
 			conflicts: [expect.objectContaining({ kind: "text" })],
 		});
-		expect(syncExitCode(result as SyncResult)).toBe(2);
+		expect(syncExitCode(result)).toBe(2);
 		await left.run();
 		const paths = await right.vault.list();
 		expect(paths).toHaveLength(2);
@@ -238,12 +237,12 @@ describe("CLI filesystem and SQLite against the real Worker", () => {
 		const snapshot = await right.api.snapshot();
 		const repeated = await right.run();
 		expect(repeated).toMatchObject({ pending: 0, conflicts: [] });
-		expect(syncExitCode(repeated as SyncResult)).toBe(0);
+		expect(syncExitCode(repeated)).toBe(0);
 		expect(await right.api.snapshot()).toEqual(snapshot);
 
 		const store = new SqliteStore(join(right.root, ".cf-sync/state.sqlite"));
 		try {
-			expect((await store.load())?.conflicts).toEqual((result as SyncResult).conflicts);
+			expect((await store.load())?.conflicts).toEqual(result.conflicts);
 		} finally {
 			store.close();
 		}
@@ -261,7 +260,7 @@ describe("CLI filesystem and SQLite against the real Worker", () => {
 		await right.vault.write("local.md", encode("local addition"));
 		const before = await contents(right.root);
 		const remote = await right.api.snapshot();
-		const plan = await right.run(true);
+		const plan = await right.plan();
 		expect(plan).toMatchObject({
 			uploads: [expect.objectContaining({ path: "local.md", action: "create" })],
 			downloads: [expect.objectContaining({ path: "remote.md", action: "write" })],
