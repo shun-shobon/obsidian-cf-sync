@@ -1,4 +1,4 @@
-import { AccountApi } from "@cf-sync/sync-core";
+import { AccountApi } from "@cf-sync/sync-core/infra/http/server-api";
 
 import { resolveCredentials } from "../infra/config/credentials";
 import { resolveServerUrl } from "../infra/config/server-url";

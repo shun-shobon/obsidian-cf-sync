@@ -21,6 +21,14 @@ export class PlanningVault implements VaultPort {
 		return [...paths];
 	}
 
+	async exists(path: string): Promise<boolean> {
+		if (this.changed.has(path)) {
+			return this.changed.get(path) !== undefined;
+		}
+
+		return await this.source.exists(path);
+	}
+
 	async read(path: string): Promise<Uint8Array> {
 		if (!this.changed.has(path)) {
 			return await this.source.read(path);
@@ -36,7 +44,7 @@ export class PlanningVault implements VaultPort {
 	}
 
 	async write(path: string, bytes: Uint8Array): Promise<void> {
-		const present = (await this.list()).includes(path);
+		const present = await this.exists(path);
 
 		if (present && equalFlat(await this.read(path), bytes)) {
 			return;
@@ -50,7 +58,7 @@ export class PlanningVault implements VaultPort {
 		expected: Uint8Array | undefined,
 		bytes: Uint8Array,
 	): Promise<boolean> {
-		const present = (await this.list()).includes(path);
+		const present = await this.exists(path);
 		const expectedPresent = expected !== undefined;
 
 		if (present !== expectedPresent) {

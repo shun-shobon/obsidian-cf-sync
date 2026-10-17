@@ -1,4 +1,3 @@
-import "./helpers/browser-window";
 import "fake-indexeddb/auto";
 import { digest } from "@cf-sync/protocol";
 import { SyncEngine } from "@cf-sync/sync-core/sync/usecase/sync-engine";

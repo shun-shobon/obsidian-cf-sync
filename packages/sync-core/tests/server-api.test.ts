@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { AccountApi, ConnectionError, DocumentNotFoundError, VaultApi } from "../src";
-import type { HttpRequest, HttpResponse, ServerConnection } from "../src";
+import { ConnectionError } from "../src/domain/connection-error";
+import { DocumentNotFoundError } from "../src/domain/document-not-found-error";
+import type { HttpRequest, HttpResponse, ServerConnection } from "../src/infra/http/http-client";
+import { AccountApi, VaultApi } from "../src/infra/http/server-api";
 
 const origin = "https://sync.example.com";
 const vaultId = "00000000-0000-4000-8000-000000000001";

@@ -1,8 +1,11 @@
 import { realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
-import { PlanSync, SyncOnce, VaultApi } from "@cf-sync/sync-core";
-import type { SyncPlan, SyncResult } from "@cf-sync/sync-core";
+import { VaultApi } from "@cf-sync/sync-core/infra/http/server-api";
+import type { SyncPlan } from "@cf-sync/sync-core/sync/domain/sync-plan";
+import type { SyncResult } from "@cf-sync/sync-core/sync/domain/sync-result";
+import { PlanSync } from "@cf-sync/sync-core/sync/usecase/plan-sync";
+import { SyncOnce } from "@cf-sync/sync-core/sync/usecase/sync-once";
 
 import { normalizeServerUrl } from "../domain/connection";
 import { resolveCredentials } from "../infra/config/credentials";

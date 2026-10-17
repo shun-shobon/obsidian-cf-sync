@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import { Server } from "../../obsidian-plugin/tests/helpers/sync-server";
 import { Vault } from "../../obsidian-plugin/tests/helpers/sync-vault";
-import { DocumentNotFoundError, PlanSync, SyncOnce } from "../src";
+import { DocumentNotFoundError } from "../src/domain/document-not-found-error";
+import { PlanSync } from "../src/sync/usecase/plan-sync";
+import { SyncOnce } from "../src/sync/usecase/sync-once";
 import { withAttachments } from "./helpers/attachment-api";
 import { Store } from "./helpers/memory-store";
 

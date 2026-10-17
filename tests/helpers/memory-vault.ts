@@ -6,6 +6,10 @@ export function memoryVault(files: Map<string, Uint8Array>): VaultPort {
 			return Promise.resolve([...files.keys()]);
 		},
 
+		exists(path) {
+			return Promise.resolve(files.has(path));
+		},
+
 		read(path) {
 			const bytes = files.get(path);
 			if (!bytes) {

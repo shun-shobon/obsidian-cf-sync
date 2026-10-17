@@ -25,10 +25,9 @@ export class RecoverIncoming {
 			return;
 		}
 
-		const paths = new Set(await this.vault.list());
 		let current: Uint8Array | undefined;
 		let currentDigest: string | null = null;
-		if (paths.has(incoming.file.path)) {
+		if (await this.vault.exists(incoming.file.path)) {
 			current = await this.vault.read(incoming.file.path);
 			currentDigest = await digest(current);
 		}
@@ -132,7 +131,7 @@ export class RecoverIncoming {
 		}
 
 		let data: StoredData | undefined;
-		if (incoming.update != null && incoming.update !== "") {
+		if (incoming.update != null) {
 			data = { key: documentKey(local.id), value: toUint8Array(incoming.update) };
 		}
 

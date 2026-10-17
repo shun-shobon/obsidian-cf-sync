@@ -43,12 +43,7 @@ export class Presence {
 		for (const remote of this.remote.values()) {
 			this.apply(awareness, fileId, remote);
 		}
-		doc.on("destroy", () => {
-			this.documents.delete(doc);
-			if (this.active?.doc === doc) {
-				this.clearSelection(this.active.owner);
-			}
-		});
+		doc.on("destroy", () => this.forgetDoc(doc));
 		return awareness;
 	}
 
@@ -151,28 +146,29 @@ export class Presence {
 		if (message.deviceId === this.options.deviceId) {
 			return;
 		}
-		let cursor: RemoteCursor | undefined;
-		if (message.cursor) {
-			cursor = decodeCursor(message.cursor);
-			// A peer's broken cursor must neither stop sync nor replace its last valid cursor.
-			if (!cursor) {
-				return;
-			}
+		if (!message.cursor) {
+			this.removeRemote(message.deviceId);
+			return;
+		}
+		const cursor = decodeCursor(message.cursor);
+		// A peer's broken cursor must neither stop sync nor replace its last valid cursor.
+		if (!cursor) {
+			return;
+		}
+		if (message.fileId == null) {
+			this.removeRemote(message.deviceId);
+			return;
 		}
 		const previous = this.remote.get(message.deviceId);
 		if (previous) {
 			clearTimeout(previous.expiry);
+			// State kept under the old file or client ID would not be overwritten by the new one.
 			if (
 				previous.message.fileId !== message.fileId ||
-				previous.message.clientId !== message.clientId ||
-				previous.message.name !== message.name
+				previous.message.clientId !== message.clientId
 			) {
 				this.removeRemote(message.deviceId);
 			}
-		}
-		if (!cursor || message.fileId == null) {
-			this.removeRemote(message.deviceId);
-			return;
 		}
 		const remote: RemotePresence = {
 			message,

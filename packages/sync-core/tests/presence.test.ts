@@ -1,4 +1,3 @@
-import "../../obsidian-plugin/tests/helpers/browser-window";
 import type { ServerMessage } from "@cf-sync/protocol";
 import { fromUint8Array } from "js-base64";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -6,7 +5,7 @@ import * as Y from "yjs";
 
 import { Server } from "../../obsidian-plugin/tests/helpers/sync-server";
 import { Vault } from "../../obsidian-plugin/tests/helpers/sync-vault";
-import type { SyncStatus } from "../src";
+import type { SyncStatus } from "../src/sync/domain/sync-state";
 import { Presence } from "../src/sync/service/presence";
 import { SyncEngine } from "../src/sync/usecase/sync-engine";
 import { Store } from "./helpers/memory-store";

@@ -25,6 +25,10 @@ export class ObsidianVault implements VaultPort {
 		return Promise.resolve(this.vault.getFiles().map((file) => file.path));
 	}
 
+	exists(path: string) {
+		return Promise.resolve(this.vault.getAbstractFileByPath(path) instanceof TFile);
+	}
+
 	async read(path: string) {
 		const file = this.vault.getAbstractFileByPath(path);
 

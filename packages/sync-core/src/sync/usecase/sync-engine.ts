@@ -6,6 +6,7 @@ import { ConnectionError } from "../../domain/connection-error";
 import { DocumentNotFoundError } from "../../domain/document-not-found-error";
 import type { LocalFile } from "../domain/sync-state";
 import type { Documents } from "../service/documents";
+import { isTextEdit } from "../service/pending-operations";
 import { Presence } from "../service/presence";
 import { SyncConnection } from "../service/sync-connection";
 import { SyncScheduler } from "../service/sync-scheduler";
@@ -59,12 +60,12 @@ export class SyncEngine {
 			},
 		});
 		this.session = new SyncSession(options, {
-			onStatus: (status) => options.onStatus(status),
-			onConflict: (file, message) => options.onConflict(file, message),
+			onStatus: options.onStatus,
+			onConflict: options.onConflict,
 			onEdit: (file, doc) => this.editorChanged(file, doc),
 			onRemap: (doc, fileId) => this.presence.remapDoc(doc, fileId),
 			onQueued: () => this.queued(),
-			confirmInitial: (paths) => options.confirmInitial(paths),
+			confirmInitial: options.confirmInitial,
 		});
 		this.sendPending = new SendPending(
 			this.state,
@@ -72,15 +73,14 @@ export class SyncEngine {
 			this.documents,
 			(work) => this.session.enqueue(work),
 			(operation) => {
-				if (operation.type === "edit" && operation.content.kind === "text") {
+				if (isTextEdit(operation)) {
 					return this.connection.operate(operation);
 				}
 				return api.operate(operation);
 			},
 			(operation, result) => {
-				if (result.conflict || operation.type !== "edit" || operation.content.kind !== "text") {
-					this.requestedReconcile += 1;
-					this.schedule();
+				if (result.conflict || !isTextEdit(operation)) {
+					this.requestReconcile();
 				}
 			},
 		);
@@ -92,6 +92,10 @@ export class SyncEngine {
 
 	private get documents(): Documents {
 		return this.session.documents;
+	}
+
+	private get active(): boolean {
+		return !this.paused && !this.disposed && !this.stopped;
 	}
 
 	async start(): Promise<void> {
@@ -106,9 +110,7 @@ export class SyncEngine {
 	pause(): void {
 		this.paused = true;
 		this.scheduler.cancel();
-		this.presence.disconnect();
-		this.ready = false;
-		this.connection.disconnect();
+		this.disconnect();
 		this.state.emit("paused");
 	}
 
@@ -124,9 +126,7 @@ export class SyncEngine {
 
 		this.stopped = false;
 		this.scheduler.cancel();
-		this.presence.disconnect();
-		this.ready = false;
-		this.connection.disconnect();
+		this.disconnect();
 		const generation = this.connection.generation;
 		await this.session.enqueue(async () => {
 			if (!this.isCurrent(generation)) {
@@ -150,8 +150,8 @@ export class SyncEngine {
 	}
 
 	getDoc(path: string): Y.Doc | undefined {
-		const file = this.state.data.files.find((candidate) => candidate.path === path);
-		if (!file || isExcluded(file.path, this.state.data.exclusions)) {
+		const file = this.syncedFileByPath(path);
+		if (!file) {
 			return undefined;
 		}
 
@@ -160,8 +160,8 @@ export class SyncEngine {
 
 	async ensureDoc(path: string): Promise<Y.Doc | undefined> {
 		return await this.session.enqueue(async () => {
-			const file = this.state.data.files.find((candidate) => candidate.path === path);
-			if (file?.kind !== "text" || isExcluded(file.path, this.state.data.exclusions)) {
+			const file = this.syncedFileByPath(path);
+			if (file?.kind !== "text") {
 				return undefined;
 			}
 
@@ -174,16 +174,16 @@ export class SyncEngine {
 	}
 
 	getAwareness(doc: Y.Doc) {
-		const file = this.state.data.files.find((entry) => this.documents.get(entry.id) === doc);
-		if (!file || isExcluded(file.path, this.state.data.exclusions)) {
+		const file = this.syncedFileByDoc(doc);
+		if (!file) {
 			return undefined;
 		}
 		return this.presence.getAwareness(file.id, doc);
 	}
 
 	setSelection(owner: object, doc: Y.Doc, anchor: number, head: number): void {
-		const file = this.state.data.files.find((entry) => this.documents.get(entry.id) === doc);
-		if (!file || isExcluded(file.path, this.state.data.exclusions)) {
+		const file = this.syncedFileByDoc(doc);
+		if (!file) {
 			this.presence.clearSelection(owner);
 			return;
 		}
@@ -236,7 +236,7 @@ export class SyncEngine {
 	}
 
 	private async synchronizeNow(): Promise<void> {
-		if (this.paused || this.disposed || this.stopped) {
+		if (!this.active) {
 			return;
 		}
 		const generation = this.connection.generation;
@@ -340,15 +340,12 @@ export class SyncEngine {
 
 	private failed(error: unknown): void {
 		if (error instanceof DocumentNotFoundError) {
-			this.requestedReconcile += 1;
-			this.schedule(100);
+			this.requestReconcile(100);
 
 			return;
 		}
 
-		this.presence.disconnect();
-		this.ready = false;
-		this.connection.disconnect();
+		this.disconnect();
 		if (!(error instanceof ConnectionError)) {
 			this.stopped = true;
 			this.scheduler.cancel();
@@ -362,17 +359,48 @@ export class SyncEngine {
 	}
 
 	private isCurrent(generation: number): boolean {
-		const active = !this.paused && !this.disposed && !this.stopped;
-
-		return generation === this.connection.generation && active;
+		return generation === this.connection.generation && this.active;
 	}
 
-	private schedule(delay = 50): void {
-		if (this.disposed || this.paused || this.stopped) {
+	private schedule(delay?: number): void {
+		if (!this.active) {
 			return;
 		}
 
 		this.scheduler.schedule(delay);
+	}
+
+	private requestReconcile(delay?: number): void {
+		this.requestedReconcile += 1;
+		this.schedule(delay);
+	}
+
+	private disconnect(): void {
+		this.presence.disconnect();
+		this.ready = false;
+		this.connection.disconnect();
+	}
+
+	private syncedFileByPath(path: string): LocalFile | undefined {
+		const file = this.state.data.files.find((candidate) => candidate.path === path);
+
+		return this.synced(file);
+	}
+
+	private syncedFileByDoc(doc: Y.Doc): LocalFile | undefined {
+		const file = this.state.data.files.find(
+			(candidate) => this.documents.get(candidate.id) === doc,
+		);
+
+		return this.synced(file);
+	}
+
+	private synced(file: LocalFile | undefined): LocalFile | undefined {
+		if (!file || isExcluded(file.path, this.state.data.exclusions)) {
+			return undefined;
+		}
+
+		return file;
 	}
 
 	private queued(): void {
@@ -416,15 +444,14 @@ export class SyncEngine {
 				})
 				.catch((error: unknown) => this.failed(error));
 		} else if (message.type === "settings") {
-			this.requestedReconcile += 1;
-			this.schedule(50);
+			this.requestReconcile();
 		}
 	}
 
 	private async receiveChange(
 		message: Extract<ServerMessage, { type: "changed" | "text" }>,
 	): Promise<void> {
-		if (this.paused || this.disposed || this.stopped) {
+		if (!this.active) {
 			return;
 		}
 		const generation = this.connection.generation;
@@ -443,12 +470,9 @@ export class SyncEngine {
 				const pending = this.state.data.pending.filter(
 					(operation) => operation.fileId === message.fileId,
 				);
-				const textOnly = pending.every(
-					(operation) => operation.type === "edit" && operation.content.kind === "text",
-				);
+				const textOnly = pending.every(isTextEdit);
 				if (pending.length > 0 && (message.type !== "text" || !textOnly)) {
-					this.requestedReconcile += 1;
-					this.schedule();
+					this.requestReconcile();
 					return;
 				}
 				if (!isExcluded(fetched.file.path, this.state.data.exclusions)) {

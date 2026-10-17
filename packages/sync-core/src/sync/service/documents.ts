@@ -5,6 +5,12 @@ import { documentKey } from "../domain/storage-keys";
 import type { LocalFile } from "../domain/sync-state";
 import type { StoredData, SyncStore } from "../ports/sync-store";
 
+export interface BorrowedDoc {
+	doc: Y.Doc;
+	/** Closes the document only if `borrow` opened it, leaving editor-held documents open. */
+	release(): void;
+}
+
 export class Documents {
 	private readonly docs = new Map<string, Y.Doc>();
 	private readonly queuedVectors = new WeakMap<Y.Doc, Uint8Array>();
@@ -42,6 +48,18 @@ export class Documents {
 		});
 
 		return doc;
+	}
+
+	async borrow(file: LocalFile): Promise<BorrowedDoc> {
+		const wasOpen = this.docs.has(file.id);
+		const doc = await this.open(file);
+		const release = () => {
+			if (!wasOpen) {
+				this.remove(file.id);
+			}
+		};
+
+		return { doc, release };
 	}
 
 	queuedVector(doc: Y.Doc): Uint8Array {

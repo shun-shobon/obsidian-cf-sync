@@ -4,6 +4,10 @@ import * as Y from "yjs";
 
 import type { LocalFile, LocalState } from "../domain/sync-state";
 
+type TextEdit = Extract<Operation, { type: "edit" }> & {
+	content: Extract<Content, { kind: "text" }>;
+};
+
 export function contentOperation(state: LocalState, file: LocalFile, content: Content): Operation {
 	const creating = state.pending.some((op) => op.fileId === file.id && op.type === "create");
 	const identity = { opId: crypto.randomUUID(), fileId: file.id, path: file.path, content };
@@ -22,17 +26,15 @@ export function appendContent(state: LocalState, operation: Operation): void {
 		isTextEdit(operation) && isTextEdit(previous) && !state.attempted.includes(previous.opId);
 
 	if (replacesUnsentText) {
-		if (previous.content.kind === "text" && operation.content.kind === "text") {
-			previous.content = {
-				kind: "text",
-				update: fromUint8Array(
-					Y.mergeUpdates([
-						toUint8Array(previous.content.update),
-						toUint8Array(operation.content.update),
-					]),
-				),
-			};
-		}
+		previous.content = {
+			kind: "text",
+			update: fromUint8Array(
+				Y.mergeUpdates([
+					toUint8Array(previous.content.update),
+					toUint8Array(operation.content.update),
+				]),
+			),
+		};
 
 		return;
 	}
@@ -51,9 +53,7 @@ function lastFileOperation(pending: Operation[], fileId: string): Operation | un
 	return undefined;
 }
 
-function isTextEdit(
-	operation: Operation | undefined,
-): operation is Extract<Operation, { type: "edit" }> {
+export function isTextEdit(operation: Operation | undefined): operation is TextEdit {
 	return operation?.type === "edit" && operation.content.kind === "text";
 }
 

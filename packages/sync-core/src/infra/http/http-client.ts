@@ -47,6 +47,7 @@ export class HttpClient {
 			headers: { ...options.headers, ...this.headers, ...authorization },
 		};
 
+		// Obsidian's mobile requestUrl is not verified with an explicit undefined body.
 		if (options.body !== undefined) {
 			request.body = options.body;
 		}

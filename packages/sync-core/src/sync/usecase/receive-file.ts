@@ -9,10 +9,12 @@ import type { LocalFile } from "../domain/sync-state";
 import type { RestApiPort } from "../ports/api-port";
 import type { StoredData } from "../ports/sync-store";
 import type { VaultPort } from "../ports/vault-port";
-import type { Documents } from "../service/documents";
+import type { BorrowedDoc, Documents } from "../service/documents";
 import { adoptReceived } from "../service/snapshot-state";
 import type { SyncState } from "../service/sync-state";
 import type { LocalChanges } from "./local-changes";
+
+const encoder = new TextEncoder();
 
 export interface FetchedFile {
 	file: FileRecord;
@@ -28,8 +30,7 @@ interface PreparedContent {
 	bytes: Uint8Array;
 	digest: string;
 	update: string | null;
-	doc: Y.Doc | undefined;
-	wasOpen: boolean;
+	borrowed: BorrowedDoc | undefined;
 }
 
 export class ReceiveFile {
@@ -61,8 +62,7 @@ export class ReceiveFile {
 			return true;
 		}
 
-		const paths = new Set(await this.vault.list());
-		const disk = await this.readDisk(existing?.path ?? remote.path, paths);
+		const disk = await this.readDisk(existing?.path ?? remote.path);
 
 		if (await this.captureLocalChange(existing, remote, disk)) {
 			return false;
@@ -74,7 +74,7 @@ export class ReceiveFile {
 			return false;
 		}
 
-		const occupied = await this.preparePath(local, remote, paths);
+		const occupied = await this.preparePath(local, remote);
 		let expected = disk;
 		if (occupied) {
 			expected = undefined;
@@ -84,19 +84,19 @@ export class ReceiveFile {
 
 		const written = await this.vault.writeIfUnchanged(remote.path, expected?.bytes, content.bytes);
 		if (!written) {
-			await this.captureInterruptedWrite(existing, local, remote, content);
+			await this.captureInterruptedWrite(existing, remote, content);
 
 			return false;
 		}
 
 		await this.commitReceived(existing, local, fetched, content);
-		this.releaseContent(local, content);
+		content.borrowed?.release();
 
 		return true;
 	}
 
-	private async readDisk(path: string, paths: Set<string>): Promise<DiskFile | undefined> {
-		if (!paths.has(path)) {
+	private async readDisk(path: string): Promise<DiskFile | undefined> {
+		if (!(await this.vault.exists(path))) {
 			return undefined;
 		}
 
@@ -137,46 +137,39 @@ export class ReceiveFile {
 		if (fetched.content.kind === "blob") {
 			const bytes = fetched.content.bytes;
 
-			return { bytes, digest: await digest(bytes), update: null, doc: undefined, wasOpen: false };
+			return { bytes, digest: await digest(bytes), update: null, borrowed: undefined };
 		}
 
-		const wasOpen = this.documents.get(local.id) !== undefined;
-		const doc = await this.documents.open(local);
+		const borrowed = await this.documents.borrow(local);
 		const staged = new Y.Doc();
-		Y.applyUpdate(staged, Y.encodeStateAsUpdate(doc));
+		Y.applyUpdate(staged, Y.encodeStateAsUpdate(borrowed.doc));
 		Y.applyUpdate(staged, toUint8Array(fetched.content.update));
 
 		if (staged.store.pendingStructs || staged.store.pendingDs) {
 			staged.destroy();
-			if (!wasOpen) {
-				this.documents.remove(local.id);
-			}
+			borrowed.release();
 
 			return undefined;
 		}
 
-		const bytes = new TextEncoder().encode(staged.getText("content").toString());
+		const bytes = encoder.encode(staged.getText("content").toString());
 		const update = fromUint8Array(Y.encodeStateAsUpdate(staged));
 		staged.destroy();
 
-		return { bytes, digest: await digest(bytes), update, doc, wasOpen };
+		return { bytes, digest: await digest(bytes), update, borrowed };
 	}
 
-	private async preparePath(
-		local: LocalFile,
-		remote: FileRecord,
-		paths: Set<string>,
-	): Promise<boolean> {
+	private async preparePath(local: LocalFile, remote: FileRecord): Promise<boolean> {
 		let occupant = this.state.data.files.find((file) => file.path === remote.path);
 		if (occupant?.id === local.id) {
 			occupant = undefined;
 		}
 
-		if (occupant && paths.has(remote.path)) {
+		if (occupant && (await this.vault.exists(remote.path))) {
 			await this.protectOccupant(occupant, remote.path);
 		}
 
-		const needsMove = local.path !== remote.path && paths.has(local.path);
+		const needsMove = local.path !== remote.path && (await this.vault.exists(local.path));
 		if (needsMove) {
 			await this.vault.rename(local.path, remote.path);
 		}
@@ -207,19 +200,18 @@ export class ReceiveFile {
 			expectedDigest: expected?.digest ?? null,
 			update: content.update,
 		};
-		await this.state.store.save(this.state.data, { key: incomingKey, value: content.bytes });
+		await this.state.persist({ key: incomingKey, value: content.bytes });
 	}
 
 	private async captureInterruptedWrite(
 		existing: LocalFile | undefined,
-		local: LocalFile,
 		remote: FileRecord,
 		content: PreparedContent,
 	): Promise<void> {
 		await this.state.clearIncoming();
-		this.releaseContent(local, content);
+		content.borrowed?.release();
 		// The staged remote state was never applied; capture against the unchanged baseline.
-		if (existing && existing.path !== remote.path) {
+		if (existing) {
 			existing.path = remote.path;
 		}
 
@@ -237,8 +229,9 @@ export class ReceiveFile {
 			this.state.data.files.push(local);
 		}
 
-		if (content.doc && fetched.content.kind === "text") {
-			Y.applyUpdate(content.doc, toUint8Array(fetched.content.update), "remote");
+		const doc = content.borrowed?.doc;
+		if (doc && fetched.content.kind === "text") {
+			Y.applyUpdate(doc, toUint8Array(fetched.content.update), "remote");
 		}
 
 		Object.assign(local, remote, {
@@ -254,16 +247,10 @@ export class ReceiveFile {
 		}
 
 		let receivedData: StoredData | undefined;
-		if (content.doc) {
-			receivedData = { key: documentKey(local.id), value: Y.encodeStateAsUpdate(content.doc) };
+		if (doc) {
+			receivedData = { key: documentKey(local.id), value: Y.encodeStateAsUpdate(doc) };
 		}
 
 		await this.state.clearIncoming(receivedData);
-	}
-
-	private releaseContent(local: LocalFile, content: PreparedContent): void {
-		if (content.doc && !content.wasOpen) {
-			this.documents.remove(local.id);
-		}
 	}
 }

@@ -1,4 +1,3 @@
-import "./helpers/browser-window";
 import "fake-indexeddb/auto";
 import { digest } from "@cf-sync/protocol";
 import type { Operation, ServerMessage } from "@cf-sync/protocol";

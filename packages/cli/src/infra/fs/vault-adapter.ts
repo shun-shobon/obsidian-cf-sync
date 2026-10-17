@@ -1,8 +1,8 @@
 import { constants } from "node:fs";
-import { mkdir, open, readdir, rename, rm } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import type { VaultPort } from "@cf-sync/sync-core";
+import type { VaultPort } from "@cf-sync/sync-core/sync/ports/vault-port";
 
 import { hasErrorCode } from "./error-code";
 import { resolveVaultPath } from "./vault-path";
@@ -20,6 +20,18 @@ export class FileVault implements VaultPort {
 		paths.sort();
 
 		return paths;
+	}
+
+	async exists(path: string): Promise<boolean> {
+		const stat = await lstat(await this.safePath(path)).catch((error: unknown) => {
+			if (hasErrorCode(error, "ENOENT")) {
+				return undefined;
+			}
+
+			throw error;
+		});
+
+		return stat?.isFile() === true;
 	}
 
 	async read(path: string): Promise<Uint8Array> {

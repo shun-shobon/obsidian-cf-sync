@@ -2,8 +2,11 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { ConnectionError, PlanSync, SyncOnce, VaultApi } from "@cf-sync/sync-core";
-import type { SyncResult } from "@cf-sync/sync-core";
+import { ConnectionError } from "@cf-sync/sync-core/domain/connection-error";
+import { VaultApi } from "@cf-sync/sync-core/infra/http/server-api";
+import type { SyncResult } from "@cf-sync/sync-core/sync/domain/sync-result";
+import { PlanSync } from "@cf-sync/sync-core/sync/usecase/plan-sync";
+import { SyncOnce } from "@cf-sync/sync-core/sync/usecase/sync-once";
 import { build } from "esbuild";
 import { Miniflare } from "miniflare";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";

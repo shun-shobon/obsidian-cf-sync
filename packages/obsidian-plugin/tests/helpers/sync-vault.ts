@@ -7,6 +7,10 @@ export class Vault implements VaultPort {
 		return Promise.resolve([...this.files.keys()]);
 	}
 
+	exists(path: string) {
+		return Promise.resolve(this.files.has(path));
+	}
+
 	read(path: string) {
 		const value = this.files.get(path);
 		if (!value) {

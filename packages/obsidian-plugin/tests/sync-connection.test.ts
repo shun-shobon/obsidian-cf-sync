@@ -1,4 +1,3 @@
-import "./helpers/browser-window";
 import type { Operation, OperationResult, ServerMessage } from "@cf-sync/protocol";
 import { ConnectionError } from "@cf-sync/sync-core/domain/connection-error";
 import type { ApiPort } from "@cf-sync/sync-core/sync/ports/api-port";

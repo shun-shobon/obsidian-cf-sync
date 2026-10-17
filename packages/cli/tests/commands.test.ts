@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { SyncOnce } from "@cf-sync/sync-core";
+import { SyncOnce } from "@cf-sync/sync-core/sync/usecase/sync-once";
 import { runCommand } from "citty";
 import { build } from "tsdown";
 import { afterEach, expect, it, vi } from "vitest";

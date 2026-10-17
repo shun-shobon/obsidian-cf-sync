@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
-import type { LocalState, StoredData, SyncStore } from "@cf-sync/sync-core";
+import type { LocalState } from "@cf-sync/sync-core/sync/domain/sync-state";
+import type { StoredData, SyncStore } from "@cf-sync/sync-core/sync/ports/sync-store";
 
 export class SqliteStore implements SyncStore {
 	private readonly db: DatabaseSync;

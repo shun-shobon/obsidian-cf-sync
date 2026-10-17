@@ -1,4 +1,3 @@
-import "./helpers/browser-window";
 import "fake-indexeddb/auto";
 import type { ServerMessage } from "@cf-sync/protocol";
 import { ConnectionError } from "@cf-sync/sync-core/domain/connection-error";
