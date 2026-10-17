@@ -64,7 +64,6 @@ export class SyncEngine {
 			onEdit: (file, doc) => this.editorChanged(file, doc),
 			onRemap: (doc, fileId) => this.presence.remapDoc(doc, fileId),
 			onQueued: () => this.queued(),
-			onQueueError: (error) => this.state.emit("error", error),
 			confirmInitial: (paths) => options.confirmInitial(paths),
 		});
 		this.sendPending = new SendPending(
@@ -196,7 +195,9 @@ export class SyncEngine {
 	}
 
 	releaseDoc(doc: Y.Doc): void {
-		void this.session.enqueue(() => this.documents.release(doc)).catch(() => {});
+		void this.session
+			.enqueue(() => this.documents.release(doc))
+			.catch((error: unknown) => this.state.emit("error", error));
 	}
 
 	capture(path: string): Promise<void> {
@@ -215,9 +216,8 @@ export class SyncEngine {
 
 	captureRename(oldPath: string, path: string): Promise<void> {
 		return this.session.enqueue(async () => {
-			if (await this.session.changes.rename(oldPath, path)) {
-				this.schedule();
-			}
+			await this.session.changes.rename(oldPath, path);
+			this.schedule();
 		});
 	}
 
@@ -393,7 +393,7 @@ export class SyncEngine {
 				await this.session.changes.editorChanged(file, doc);
 				this.schedule();
 			})
-			.catch(() => {});
+			.catch((error: unknown) => this.state.emit("error", error));
 	}
 
 	private receive(message: ServerMessage): void {

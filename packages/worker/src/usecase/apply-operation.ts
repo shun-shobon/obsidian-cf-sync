@@ -31,7 +31,15 @@ export async function applyOperation(
 	const files = await context.repository.files();
 	const current = files.find((item) => item.file.id === operation.fileId);
 	assertIncluded(operation, current, meta);
+	const revision = meta.revision;
 	const changes = await prepare(context, operation, current, files, meta);
+
+	// Rejected moves and deletions of missing files change nothing for other devices or R2.
+	if (meta.revision === revision) {
+		await context.repository.saveOperationResult(changes.result);
+
+		return changes.result;
+	}
 
 	await context.repository.commit(meta, files, changes);
 	broadcast(context.sockets, operation, changes.result, deviceId);

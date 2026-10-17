@@ -197,6 +197,7 @@ export class IndexedDbStore implements SyncStore {
 	}
 
 	close(): void {
-		void this.database.then((db) => db.close());
+		// An open failure has already been reported to the operation that awaited it.
+		this.database.then((db) => db.close()).catch(() => {});
 	}
 }

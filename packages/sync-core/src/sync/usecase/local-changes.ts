@@ -43,16 +43,16 @@ export class LocalChanges {
 		}
 	}
 
-	async rename(oldPath: string, path: string): Promise<boolean> {
+	async rename(oldPath: string, path: string): Promise<void> {
 		const file = this.state.data.files.find((candidate) => candidate.path === oldPath);
 		if (!file) {
 			await this.capture(path);
 
-			return false;
+			return;
 		}
 
 		if (isExcluded(path, this.state.data.exclusions)) {
-			return false;
+			return;
 		}
 
 		v.parse(pathSchema, path);
@@ -65,8 +65,6 @@ export class LocalChanges {
 			path,
 		});
 		await this.state.persist();
-
-		return true;
 	}
 
 	async delete(path: string, known?: LocalFile): Promise<void> {

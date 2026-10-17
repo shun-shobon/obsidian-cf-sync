@@ -112,7 +112,7 @@ export class SyncSettingsTab extends PluginSettingTab {
 		setting.addButton((button) =>
 			button.setButtonText(t(($) => $.ui.syncNow)).onClick(() => {
 				void this.controller.run(async () => {
-					await this.controller.engine?.syncNow();
+					await this.controller.syncNow();
 					this.update();
 				});
 			}),

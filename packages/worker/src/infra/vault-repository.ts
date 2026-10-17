@@ -78,6 +78,10 @@ export class VaultRepository {
 		return this.storage.get<OperationResult>(`op:${id}`);
 	}
 
+	saveOperationResult(result: OperationResult): Promise<void> {
+		return this.storage.put(`op:${result.opId}`, result);
+	}
+
 	async content(stored: StoredFile): Promise<Content> {
 		if ("blob" in stored) {
 			return { kind: "blob", blob: stored.blob };

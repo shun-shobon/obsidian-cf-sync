@@ -423,6 +423,66 @@ function socket(deviceId: string) {
 }
 
 describe("realtime synchronization", () => {
+	it("distinguishes malformed Yjs updates from updates with missing dependencies", async () => {
+		const s = setup();
+		await s.snapshot();
+		const op = create("a.md", "one");
+		await s.operation(op);
+		const doc = new Y.Doc();
+		doc.getText("content").insert(0, "base");
+		const vector = Y.encodeStateVector(doc);
+		doc.getText("content").insert(4, " edit");
+		const edit = (update: string): Operation => ({
+			type: "edit",
+			opId: crypto.randomUUID(),
+			fileId: op.fileId,
+			path: "a.md",
+			baseRevision: 1,
+			content: { kind: "text", update },
+		});
+
+		await expect(
+			s.operation(edit(fromUint8Array(Y.encodeStateAsUpdate(doc, vector)))),
+		).rejects.toMatchObject({ kind: "invalid-input", message: "Missing Yjs update dependencies" });
+		await expect(s.operation(edit("AQ=="))).rejects.toMatchObject({
+			kind: "invalid-input",
+			message: "Invalid Yjs update",
+		});
+	});
+
+	it("does not notify devices or flush for operations that change nothing", async () => {
+		const s = setup();
+		await s.snapshot();
+		const op = create("a.md", "one");
+		await s.operation(op);
+		await s.alarm();
+		const ws = socket(s.deviceId);
+		s.sockets.push(ws as unknown as WebSocket);
+
+		const rejected = await s.operation({
+			type: "move",
+			opId: crypto.randomUUID(),
+			fileId: op.fileId,
+			basePathRevision: 0,
+			path: "b.md",
+		});
+		const missing = await s.operation({
+			type: "delete",
+			opId: crypto.randomUUID(),
+			fileId: crypto.randomUUID(),
+			baseRevision: 1,
+		});
+
+		expect(rejected).toMatchObject({
+			conflict: true,
+			conflictReason: "move-rejected",
+			revision: 1,
+		});
+		expect(missing).toMatchObject({ conflict: false, revision: 1 });
+		expect(ws.send).not.toHaveBeenCalled();
+		expect(s.storage.alarm).toBeNull();
+	});
+
 	it("persists and acknowledges WS operations idempotently and broadcasts edit deltas", async () => {
 		const s = setup();
 		await s.snapshot();
