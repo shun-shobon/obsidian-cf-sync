@@ -43,13 +43,7 @@ export class SyncSettingsTab extends PluginSettingTab {
 					},
 					{
 						name: t(($) => $.ui.deviceName),
-						render: (setting) => {
-							setting.addText((input) =>
-								input.setValue(this.controller.config.deviceName).onChange((value) => {
-									void this.controller.run(() => this.controller.setDeviceName(value));
-								}),
-							);
-						},
+						render: (setting) => this.renderDeviceName(setting),
 					},
 					{
 						name: t(($) => $.ui.authentication),
@@ -100,6 +94,21 @@ export class SyncSettingsTab extends PluginSettingTab {
 	private clearRemoteValues() {
 		this.remote.devices.clear();
 		this.remote.snapshot.clear();
+	}
+
+	private renderDeviceName(setting: Setting) {
+		setting.addText((input) => {
+			input.setValue(this.controller.config.deviceName).onChange((value) => {
+				void this.controller.run(() => this.controller.setDeviceName(value));
+			});
+			// change fires once editing is committed, so the server and device list are not updated per keystroke.
+			input.inputEl.addEventListener("change", () => {
+				void this.controller.run(async () => {
+					await this.controller.saveDeviceName();
+					this.refresh();
+				});
+			});
+		});
 	}
 
 	private renderServerSettings(setting: Setting) {

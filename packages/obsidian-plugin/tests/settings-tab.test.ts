@@ -16,16 +16,19 @@ function createTab() {
 	const api = vi.fn();
 	const account = vi.fn();
 	const deleteDevice = vi.fn(async () => {});
+	const saveDeviceName = vi.fn(async () => {});
 	const controller = {
 		config: { server: "https://sync.example.com", auth: { tokens: {} }, vaultId: "vault" },
 		api,
 		account,
 		deleteDevice,
+		saveDeviceName,
+		setDeviceName: vi.fn(async () => {}),
 		run: (operation: () => Promise<void>) => operation(),
 	} as unknown as PluginController;
 	const tab = new SyncSettingsTab({} as App, {} as Plugin, controller);
 	const update = vi.spyOn(tab, "update");
-	return { tab, api, account, deleteDevice, update };
+	return { tab, api, account, deleteDevice, saveDeviceName, update };
 }
 
 function names(items: SettingDefinitionItem[]): string[] {
@@ -146,5 +149,24 @@ describe("declarative settings", () => {
 		resolve([{ id: "device-a", name: "Laptop" }]);
 		await vi.waitFor(() => expect(list(tab, "Devices")[0]).toMatchObject({ name: "Laptop" }));
 		expect(update).not.toHaveBeenCalled();
+	});
+
+	it("saves the device name once editing is committed and reloads the device list", async () => {
+		const { tab, saveDeviceName, update } = createTab();
+		const inputEl = new EventTarget();
+		const input = { inputEl, setValue: () => input, onChange: () => input };
+		const definition = tab
+			.getSettingDefinitions()
+			.flatMap((item) => ("items" in item ? (item.items ?? []) : [item]))
+			.find((item) => "name" in item && item.name === "Device name");
+		render(definition, {
+			addText: (configure: (component: typeof input) => void) => configure(input),
+		} as never);
+		expect(saveDeviceName).not.toHaveBeenCalled();
+
+		inputEl.dispatchEvent(new Event("change"));
+
+		await vi.waitFor(() => expect(update).toHaveBeenCalledOnce());
+		expect(saveDeviceName).toHaveBeenCalledOnce();
 	});
 });

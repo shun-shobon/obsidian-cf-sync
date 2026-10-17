@@ -152,6 +152,25 @@ describe("Device deletion", () => {
 		expect((await s.call(`/vaults/${s.vaultId}/tickets`, "POST")).status).toBe(200);
 	});
 
+	it("renames a registered device without bringing a deleted device back", async () => {
+		const s = accountApi();
+		vi.spyOn(console, "info").mockImplementation(() => {});
+		await s.call("/devices", "POST", { id: s.deviceId, name: "Laptop" });
+
+		const renamed = await s.call(`/devices/${s.deviceId}`, "PATCH", { name: " Desk " });
+
+		expect(await renamed.json()).toEqual({ id: s.deviceId, name: "Desk", revoked: false });
+		expect(await (await s.call("/devices")).json()).toEqual([
+			{ id: s.deviceId, name: "Desk", revoked: false },
+		]);
+		expect((await s.call(`/devices/${s.deviceId}`, "PATCH", { name: "" })).status).toBe(400);
+
+		await s.call(`/devices/${s.deviceId}`, "DELETE");
+
+		expect((await s.call(`/devices/${s.deviceId}`, "PATCH", { name: "Back" })).status).toBe(403);
+		expect(await (await s.call("/devices")).json()).toEqual([]);
+	});
+
 	it("keeps the device shape required by released plugins and hides revoked records", async () => {
 		const s = accountApi();
 		vi.spyOn(console, "info").mockImplementation(() => {});

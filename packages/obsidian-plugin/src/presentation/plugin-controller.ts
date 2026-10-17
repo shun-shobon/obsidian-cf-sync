@@ -114,6 +114,18 @@ export class PluginController {
 		await this.persist();
 	}
 
+	async saveDeviceName() {
+		const trimmed = this.config.deviceName.trim();
+		const loggedIn = Boolean(this.config.server && this.config.auth.tokens);
+
+		// Login registers the device with its current name.
+		if (!trimmed || !loggedIn) {
+			return;
+		}
+
+		await this.account().renameDevice(this.config.deviceId, trimmed);
+	}
+
 	async deleteDevice(id: string) {
 		await this.account().deleteDevice(id);
 

@@ -14,6 +14,14 @@ export class AccountRepository {
 		return device;
 	}
 
+	/** Unlike registration, renaming must not bring a deleted device back. */
+	async renameDevice(device: Device): Promise<Device> {
+		await this.assertDevice(device.id);
+		await this.storage.put(`device:${device.id}`, device);
+
+		return device;
+	}
+
 	async devices(): Promise<Device[]> {
 		const devices = await this.storage.list<StoredDevice>({ prefix: "device:" });
 

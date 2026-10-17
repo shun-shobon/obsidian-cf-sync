@@ -30,6 +30,7 @@ WebSocketはサーバーからの変更通知に使う。編集は250ms単位で
 | ----------------------------------- | -------------------------------------------------------- |
 | `POST /api/devices`                 | `{id,name}`で端末を登録。削除したIDも再登録できる        |
 | `GET /api/devices`                  | 端末一覧                                                 |
+| `PATCH /api/devices/:id`            | `{name}`で端末名を変更。削除した端末は403で拒否する      |
 | `DELETE /api/devices/:id`           | 端末を削除し、各Vaultの接続と未使用の接続券も破棄する    |
 | `GET /api/vaults`                   | Vault一覧                                                |
 | `POST /api/vaults`                  | `{id,name}`でVaultを作成                                 |

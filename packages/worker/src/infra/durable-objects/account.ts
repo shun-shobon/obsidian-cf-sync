@@ -28,6 +28,10 @@ export class Account extends DurableObject<Env> {
 		});
 	}
 
+	renameDevice(device: Device): Promise<RpcResult<Device>> {
+		return rpcResult(() => this.repository.renameDevice(device));
+	}
+
 	authorizeVaultAccess(deviceId: string, vaultId: string): Promise<RpcResult<void>> {
 		return rpcResult(async () => {
 			await this.repository.assertDevice(deviceId);
