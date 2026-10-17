@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readdir, rename, rm } from "node:fs/promises";
+import { mkdir, open, readdir, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import type { VaultPort } from "@cf-sync/sync-core/sync/ports/vault-port";
@@ -19,9 +19,28 @@ export class FileVault implements VaultPort {
 	}
 
 	async exists(path: string): Promise<boolean> {
-		const stat = await ifExists(lstat(await this.safePath(path)));
+		await this.safePath(path);
 
-		return stat?.isFile() === true;
+		// lstat matches names case-insensitively on macOS and Windows, but Vault paths are case-sensitive.
+		const parts = path.split("/");
+		let directory = this.root;
+
+		for (const [index, part] of parts.entries()) {
+			const entries = await ifExists(readdir(directory, { withFileTypes: true }));
+			const entry = entries?.find((candidate) => candidate.name === part);
+
+			if (index === parts.length - 1) {
+				return entry?.isFile() === true;
+			}
+
+			if (entry?.isDirectory() !== true) {
+				return false;
+			}
+
+			directory = join(directory, part);
+		}
+
+		return false;
 	}
 
 	async read(path: string): Promise<Uint8Array> {

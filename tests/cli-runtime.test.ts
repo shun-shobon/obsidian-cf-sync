@@ -75,8 +75,8 @@ async function start() {
 			root,
 			vault,
 			api,
-			run: () => withStore((ports) => new SyncOnce(ports).run()),
-			plan: () => withStore((ports) => new PlanSync(ports).run()),
+			run: () => withStore(false, (ports) => new SyncOnce(ports).run()),
+			plan: () => withStore(true, (ports) => new PlanSync(ports).run()),
 			loseNextAcknowledgment: () => {
 				loseAcknowledgment = true;
 			},

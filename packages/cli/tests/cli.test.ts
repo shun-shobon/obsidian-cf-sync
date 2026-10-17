@@ -74,6 +74,17 @@ describe("CLI persistence and filesystem", () => {
 		await expect(vault.write(".cf-sync/vault.json", bytes)).rejects.toThrow("Unsafe Vault path");
 	});
 
+	it("checks file existence with case-sensitive paths", async () => {
+		const root = await temporary();
+		const vault = new FileVault(root);
+		await vault.write("Folder/Note.md", new Uint8Array([1]));
+		expect(await vault.exists("Folder/Note.md")).toBe(true);
+		expect(await vault.exists("Folder/note.md")).toBe(false);
+		expect(await vault.exists("folder/Note.md")).toBe(false);
+		expect(await vault.exists("Folder")).toBe(false);
+		expect(await vault.exists("Missing/Note.md")).toBe(false);
+	});
+
 	it("rejects a second lock and allows a later invocation", async () => {
 		const root = await temporary();
 		const release = lockVault(root);

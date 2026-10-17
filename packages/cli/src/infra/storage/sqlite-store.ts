@@ -1,13 +1,22 @@
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
 import type { LocalState } from "@cf-sync/sync-core/sync/domain/sync-state";
 import type { StoredData, SyncStore } from "@cf-sync/sync-core/sync/ports/sync-store";
 
+const SIDECAR_SUFFIXES = ["-wal", "-shm"];
+
 export class SqliteStore implements SyncStore {
 	private readonly db: DatabaseSync;
+	private readonly createdSidecars: string[] = [];
 
 	constructor(path: string, dryRun = false) {
+		if (dryRun) {
+			this.createdSidecars = SIDECAR_SUFFIXES.map((suffix) => path + suffix).filter(
+				(sidecar) => !existsSync(sidecar),
+			);
+		}
+
 		this.db = openDatabase(path, dryRun);
 	}
 
@@ -63,6 +72,11 @@ export class SqliteStore implements SyncStore {
 
 	close(): void {
 		this.db.close();
+
+		// A read-only connection keeps the WAL index files, and a dry run must not leave them behind.
+		for (const sidecar of this.createdSidecars) {
+			rmSync(sidecar, { force: true });
+		}
 	}
 }
 
