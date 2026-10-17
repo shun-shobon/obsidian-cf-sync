@@ -1,4 +1,4 @@
-import { clientMessageSchema, idSchema } from "@cf-sync/protocol";
+import { clientMessageSchema } from "@cf-sync/protocol";
 import type { BlobRef, Operation, OperationResult, Snapshot } from "@cf-sync/protocol";
 import { DurableObject } from "cloudflare:workers";
 import * as v from "valibot";
@@ -32,7 +32,7 @@ export class Vault extends DurableObject<Env> {
 
 		this.sockets = new VaultSockets(state);
 		this.maintenance = new VaultMaintenance(state.storage, this.sockets);
-		this.repository = new VaultRepository(state.storage, this.maintenance);
+		this.repository = new VaultRepository(state.storage, this.maintenance, state.id.name);
 		this.flush = new FlushVault(
 			this.repository,
 			this.sockets,
@@ -42,25 +42,24 @@ export class Vault extends DurableObject<Env> {
 		);
 	}
 
-	snapshot(vaultId: string): Promise<RpcResult<ReadableStream<Uint8Array>>> {
-		return rpcResult(() => this.run(vaultId, (meta) => this.readSnapshot(meta)));
+	snapshot(): Promise<RpcResult<ReadableStream<Uint8Array>>> {
+		return rpcResult(() => this.run((meta) => this.readSnapshot(meta)));
 	}
 
 	applyOperation(
-		vaultId: string,
 		deviceId: string,
 		stream: ReadableStream<Uint8Array> | null,
 	): Promise<RpcResult<OperationResult>> {
 		return rpcResult(async () => {
 			const operation = await readOperation(stream);
 
-			return await this.run(vaultId, (meta) => this.apply(meta, operation, deviceId));
+			return await this.run((meta) => this.apply(meta, operation, deviceId));
 		});
 	}
 
-	document(vaultId: string, fileId: string): Promise<RpcResult<ReadableStream<Uint8Array>>> {
+	document(fileId: string): Promise<RpcResult<ReadableStream<Uint8Array>>> {
 		return rpcResult(() =>
-			this.run(vaultId, async () => {
+			this.run(async () => {
 				const stored = await this.repository.file(fileId);
 				const content = await this.repository.content(stored);
 
@@ -69,12 +68,9 @@ export class Vault extends DurableObject<Env> {
 		);
 	}
 
-	setExclusions(
-		vaultId: string,
-		exclusions: string[],
-	): Promise<RpcResult<ReadableStream<Uint8Array>>> {
+	setExclusions(exclusions: string[]): Promise<RpcResult<ReadableStream<Uint8Array>>> {
 		return rpcResult(() =>
-			this.run(vaultId, async (meta) => {
+			this.run(async (meta) => {
 				await this.repository.setExclusions(meta, exclusions);
 				await this.maintenance.schedule();
 				this.sockets.broadcast({ type: "settings", revision: meta.revision });
@@ -84,12 +80,9 @@ export class Vault extends DurableObject<Env> {
 		);
 	}
 
-	issueTicket(
-		vaultId: string,
-		deviceId: string,
-	): Promise<RpcResult<{ ticket: string; expiresAt: number }>> {
+	issueTicket(deviceId: string): Promise<RpcResult<{ ticket: string; expiresAt: number }>> {
 		return rpcResult(() =>
-			this.run(vaultId, async () => {
+			this.run(async () => {
 				const ticket = await this.sockets.issueTicket(deviceId);
 				await this.maintenance.schedule();
 
@@ -98,25 +91,24 @@ export class Vault extends DurableObject<Env> {
 		);
 	}
 
-	downloadBlob(vaultId: string, key: string): Promise<RpcResult<ReadableStream<Uint8Array>>> {
+	downloadBlob(key: string): Promise<RpcResult<ReadableStream<Uint8Array>>> {
 		return rpcResult(async () => {
-			await this.serial(() => this.repository.initialize(vaultId));
-			const object = await new BlobStorage(this.env.BUCKET, vaultId).get(key);
+			const meta = await this.serial(() => this.repository.initialize());
+			const object = await new BlobStorage(this.env.BUCKET, meta.vaultId).get(key);
 
 			return object.body;
 		});
 	}
 
 	uploadBlob(
-		vaultId: string,
 		key: string,
 		digest: string,
 		body: ReadableStream<Uint8Array> | null,
 		sizeHeader: string | null,
 	): Promise<RpcResult<BlobRef>> {
 		return rpcResult(async () => {
-			await this.serial(() => this.repository.initialize(vaultId));
-			const blob = await new BlobStorage(this.env.BUCKET, vaultId).upload(
+			const meta = await this.serial(() => this.repository.initialize());
+			const blob = await new BlobStorage(this.env.BUCKET, meta.vaultId).upload(
 				key,
 				digest,
 				body,
@@ -135,8 +127,7 @@ export class Vault extends DurableObject<Env> {
 	override async fetch(request: Request): Promise<Response> {
 		try {
 			return await this.serial(async () => {
-				const vaultId = v.parse(idSchema, request.headers.get("X-Vault-Id"));
-				await this.repository.initialize(vaultId);
+				await this.repository.initialize();
 
 				try {
 					return await this.sockets.connect(request);
@@ -188,9 +179,9 @@ export class Vault extends DurableObject<Env> {
 		console.warn({ event: "websocket.error" });
 	}
 
-	private async run<T>(vaultId: string, action: (meta: VaultMeta) => Promise<T>): Promise<T> {
+	private async run<T>(action: (meta: VaultMeta) => Promise<T>): Promise<T> {
 		return await this.serial(async () => {
-			const meta = await this.repository.initialize(vaultId);
+			const meta = await this.repository.initialize();
 
 			return await action(meta);
 		});

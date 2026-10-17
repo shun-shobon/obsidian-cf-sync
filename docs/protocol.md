@@ -4,7 +4,7 @@
 
 ## 認証と接続
 
-Accessは`/api/*`を保護し、同期を許可する利用者をポリシーで制限する。WorkerはJWTの署名・issuer・audience・有効期限・`sub`を検証し、emailは照合しない。Account DOが端末とVaultの登録を管理し、Vault DOが同期状態を管理する。Workerは端末とVaultの登録を確認し、検証済みの識別子をDOのRPCメソッドへ渡す。Vault DOは端末の登録を確認しない。
+Accessは`/api/*`を保護し、同期を許可する利用者をポリシーで制限する。WorkerはJWTの署名・issuer・audience・有効期限・`sub`を検証し、emailは照合しない。Account DOが端末とVaultの登録を管理し、Vault DOが同期状態を管理する。Workerは端末とVaultの登録を確認してから、Vault IDを名前としてVault DOを取得し、検証済みの端末IDをRPCメソッドへ渡す。Vault DOは自身の名前でVaultを特定し、端末の登録を確認しない。
 
 `/oauth/callback`は公開HTTPS中間ページから認可コードとstateをObsidianへ戻す。プラグインはPKCE verifierでコードを交換する。外部ブラウザとObsidianでCookieを共有する前提は置かない。
 

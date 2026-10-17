@@ -2,6 +2,9 @@ import type { Context } from "hono";
 import { accepts } from "hono/accepts";
 import { createInstance } from "i18next";
 
+// oxlint-disable-next-line import/no-empty-named-blocks, unicorn/require-module-specifiers -- Root tests type-check this module without the worker tsconfig, so the augmentation is imported explicitly.
+import type {} from "../../i18next";
+
 export const en = {
 	invalidCallback: "Invalid OAuth callback",
 	heading: "Return to Obsidian",

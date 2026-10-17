@@ -5,7 +5,7 @@ import { IndexedDbStore } from "../../packages/obsidian-plugin/src/infra/storage
 import { Vault } from "../../packages/sync-core/tests/helpers/sync-vault";
 import { createRuntimeApi } from "./runtime-transport";
 
-export function createRuntimeClient(mf: Miniflare, initial: Record<string, string>) {
+export async function createRuntimeClient(mf: Miniflare, initial: Record<string, string>) {
 	const vault = new Vault();
 	for (const [path, text] of Object.entries(initial)) {
 		vault.files.set(path, new TextEncoder().encode(text));
@@ -16,7 +16,7 @@ export function createRuntimeClient(mf: Miniflare, initial: Record<string, strin
 		deviceId,
 		deviceName: "Runtime device",
 		vault,
-		api: createRuntimeApi(mf, deviceId),
+		api: await createRuntimeApi(mf, deviceId),
 		store: new IndexedDbStore(`runtime-${crypto.randomUUID()}`),
 		onStatus: () => {},
 		onConflict: () => {},

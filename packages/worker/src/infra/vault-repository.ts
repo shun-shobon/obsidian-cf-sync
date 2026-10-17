@@ -19,16 +19,22 @@ export class VaultRepository {
 	constructor(
 		private readonly storage: DurableObjectStorage,
 		private readonly maintenance: VaultMaintenance,
+		// Alarms scheduled before 2026-03-15 run without ctx.id.name, so later reads use meta.vaultId.
+		private readonly vaultId: string | undefined,
 	) {}
 
-	async initialize(vaultId: string): Promise<VaultMeta> {
+	async initialize(): Promise<VaultMeta> {
 		const existing = await this.storage.get<VaultMeta>("meta");
 
 		if (existing !== undefined) {
 			return existing;
 		}
 
-		const meta: VaultMeta = { revision: 0, r2Revision: 0, exclusions: [], vaultId };
+		if (this.vaultId === undefined) {
+			throw new Error("Vault Durable Object must be addressed by name");
+		}
+
+		const meta: VaultMeta = { revision: 0, r2Revision: 0, exclusions: [], vaultId: this.vaultId };
 		await this.storage.put("meta", meta);
 
 		return meta;
