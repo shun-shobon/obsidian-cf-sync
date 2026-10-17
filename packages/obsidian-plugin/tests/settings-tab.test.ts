@@ -1,4 +1,3 @@
-import { Window } from "happy-dom";
 import type { App, Plugin, Setting, SettingDefinitionItem } from "obsidian";
 import { describe, expect, it, vi } from "vitest";
 
@@ -8,19 +7,25 @@ import { SyncSettingsTab } from "../src/presentation/settings-tab";
 vi.mock("obsidian", () => ({
 	PluginSettingTab: class {
 		constructor(readonly app: App) {}
+		update() {}
+		hide() {}
 	},
 }));
 
 function createTab() {
 	const api = vi.fn();
 	const account = vi.fn();
+	const deleteDevice = vi.fn(async () => {});
 	const controller = {
 		config: { server: "https://sync.example.com", auth: { tokens: {} }, vaultId: "vault" },
 		api,
 		account,
+		deleteDevice,
 		run: (operation: () => Promise<void>) => operation(),
 	} as unknown as PluginController;
-	return { tab: new SyncSettingsTab({} as App, {} as Plugin, controller), api, account };
+	const tab = new SyncSettingsTab({} as App, {} as Plugin, controller);
+	const update = vi.spyOn(tab, "update");
+	return { tab, api, account, deleteDevice, update };
 }
 
 function names(items: SettingDefinitionItem[]): string[] {
@@ -28,14 +33,32 @@ function names(items: SettingDefinitionItem[]): string[] {
 		if ("name" in item) {
 			return [item.name];
 		}
-		return names(item.items ?? []);
+		return [item.heading ?? "", ...names(item.items ?? [])];
 	});
+}
+
+function list(tab: SyncSettingsTab, heading: string) {
+	const item = tab
+		.getSettingDefinitions()
+		.find((candidate) => "heading" in candidate && candidate.heading === heading);
+	if (!item || !("items" in item)) {
+		throw new Error(`${heading} list is missing`);
+	}
+	return item.items ?? [];
+}
+
+function render(item: SettingDefinitionItem | undefined, setting: Partial<Setting> = {}) {
+	if (!item || !("render" in item) || !item.render) {
+		throw new Error("Render definition is missing");
+	}
+	return item.render(setting as Setting, {} as never);
 }
 
 describe("declarative settings", () => {
 	it("indexes local and remote setting names without making network requests", () => {
 		const { tab, api, account } = createTab();
 		expect(names(tab.getSettingDefinitions())).toEqual([
+			"CF Sync",
 			"Server URL",
 			"Device name",
 			"Authentication",
@@ -44,8 +67,10 @@ describe("declarative settings", () => {
 			"Remote vault",
 			"Create a vault on the server",
 			"Devices",
+			"Loading",
 			"Excluded paths",
 			"Conflict files",
+			"Loading",
 		]);
 		expect(api).not.toHaveBeenCalled();
 		expect(account).not.toHaveBeenCalled();
@@ -76,29 +101,50 @@ describe("declarative settings", () => {
 		expect(addDropdown).not.toHaveBeenCalled();
 	});
 
-	it("removes the extra device container when the rendered row is torn down", async () => {
-		const { tab, account } = createTab();
-		account.mockReturnValue({ devices: async () => [] });
-		const document = new Window().document;
-		const container = document.createElement("div");
-		const settingEl = document.createElement("div");
-		container.append(settingEl);
-		const definition = tab
-			.getSettingDefinitions()
-			.find((item) => "name" in item && item.name === "Devices");
-		if (!definition || !("render" in definition) || !definition.render) {
-			throw new Error("Devices render definition is missing");
-		}
-		const cleanup = definition.render(
-			{ settingEl, setHeading: vi.fn() } as unknown as Setting,
-			{} as never,
-		);
-		await Promise.resolve();
-		expect(container.children.length).toBe(2);
+	it("loads devices when the list renders and lists each device with a delete button", async () => {
+		const { tab, account, deleteDevice, update } = createTab();
+		const devices = vi.fn(async () => [{ id: "device-a", name: "Laptop" }]);
+		account.mockReturnValue({ devices });
+		const [placeholder] = list(tab, "Devices");
+		expect(placeholder).toMatchObject({ name: "Loading", searchable: false });
+		render(placeholder);
+		await vi.waitFor(() => expect(update).toHaveBeenCalledOnce());
+
+		const [device] = list(tab, "Devices");
+		expect(device).toMatchObject({ name: "Laptop", desc: "device-a" });
+		let click!: () => void;
+		const button = {
+			setButtonText: () => button,
+			onClick: (callback: () => void) => {
+				click = callback;
+				return button;
+			},
+		};
+		render(device, {
+			addButton: (configure: (component: typeof button) => void) => configure(button),
+		} as never);
+		click();
+		await vi.waitFor(() => expect(deleteDevice).toHaveBeenCalledWith("device-a"));
+		await vi.waitFor(() => expect(list(tab, "Devices")[0]).toMatchObject({ name: "Loading" }));
+		expect(devices).toHaveBeenCalledOnce();
+	});
+
+	it("keeps loaded devices but does not re-render after the placeholder is torn down", async () => {
+		const { tab, account, update } = createTab();
+		let resolve!: (value: { id: string; name: string }[]) => void;
+		account.mockReturnValue({
+			devices: () =>
+				new Promise((done) => {
+					resolve = done;
+				}),
+		});
+		const cleanup = render(list(tab, "Devices")[0]);
 		if (typeof cleanup !== "function") {
-			throw new TypeError("Devices render cleanup is missing");
+			throw new TypeError("Devices placeholder cleanup is missing");
 		}
 		cleanup();
-		expect(Array.from(container.children)).toEqual([settingEl]);
+		resolve([{ id: "device-a", name: "Laptop" }]);
+		await vi.waitFor(() => expect(list(tab, "Devices")[0]).toMatchObject({ name: "Laptop" }));
+		expect(update).not.toHaveBeenCalled();
 	});
 });

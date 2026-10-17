@@ -33,6 +33,8 @@ export const enUI = {
 	excludedPathsDescription:
 		"One path per line. Folders include their contents. Wildcards are not supported.",
 	conflictFiles: "Conflict files",
+	noConflictFiles: "No conflict files",
+	loading: "Loading",
 	open: "Open",
 	starting: "Preparing",
 	syncing: "Syncing",
@@ -82,6 +84,8 @@ export const jaUI = {
 	excludedPaths: "除外パス",
 	excludedPathsDescription: "1 行に 1 パス。フォルダー以下も対象です。ワイルドカードは使えません。",
 	conflictFiles: "競合ファイル",
+	noConflictFiles: "競合ファイルはありません",
+	loading: "読み込み中",
 	open: "開く",
 	starting: "準備中",
 	syncing: "同期中",
