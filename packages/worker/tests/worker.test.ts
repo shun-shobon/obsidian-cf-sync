@@ -93,13 +93,13 @@ function setup() {
 			vault.webSocketClose(ws, 1000);
 		},
 		snapshot: async () => {
-			const result = unwrapRpcResult(await vault.snapshot(vaultId, deviceId));
+			const result = unwrapRpcResult(await vault.snapshot(vaultId));
 			return await new Response(result).json<Snapshot>();
 		},
 		exclusions: async (paths: string[]) =>
-			unwrapRpcResult(await vault.setExclusions(vaultId, deviceId, paths)),
+			unwrapRpcResult(await vault.setExclusions(vaultId, paths)),
 		ticket: async () => unwrapRpcResult(await vault.issueTicket(vaultId, deviceId)),
-		revoke: async () => unwrapRpcResult(await vault.revokeDevice(deviceId)),
+		removeDevice: async () => unwrapRpcResult(await vault.removeDevice(deviceId)),
 		operation,
 		vaultId,
 		deviceId,
@@ -339,10 +339,12 @@ it("fails closed without Access configuration or a signed assertion", async () =
 });
 
 describe("Durable Object RPC", () => {
-	it("revokes without vault headers and rejects subsequent authenticated operations", async () => {
+	it("discards a removed device's unused tickets without vault headers", async () => {
 		const s = setup();
-		await s.revoke();
-		await expect(s.snapshot()).rejects.toMatchObject({ kind: "forbidden" });
+		await s.ticket();
+		await s.removeDevice();
+
+		expect([...s.storage.data.keys()].some((key) => key.startsWith("ticket:"))).toBe(false);
 	});
 
 	it.each(["{", JSON.stringify({ type: "create" })])(
@@ -376,6 +378,53 @@ describe("Durable Object RPC", () => {
 		expect((await s.snapshot()).revision).toBe(2);
 	});
 
+	it("deletes a device from every vault and accepts the same ID again", async () => {
+		const s = accountSetup();
+		const device = { id: crypto.randomUUID(), name: "Laptop" };
+		const vaultIds = [crypto.randomUUID(), crypto.randomUUID()];
+		unwrapRpcResult(await s.account.registerDevice(device));
+
+		for (const id of vaultIds) {
+			unwrapRpcResult(await s.account.createVault({ id, name: "Notes" }));
+		}
+
+		unwrapRpcResult(await s.account.deleteDevice(device.id));
+
+		expect(s.removed).toEqual(vaultIds.map((vaultId) => [vaultId, device.id]));
+		expect(unwrapRpcResult(await s.account.devices())).toEqual([]);
+		expect(await s.account.authorizeVaultAccess(device.id, vaultIds[0]!)).toMatchObject({
+			ok: false,
+			error: { kind: "forbidden" },
+		});
+
+		unwrapRpcResult(await s.account.registerDevice(device));
+
+		expect(unwrapRpcResult(await s.account.devices())).toEqual([device]);
+		expect(await s.account.authorizeVaultAccess(device.id, vaultIds[0]!)).toEqual({
+			ok: true,
+			value: undefined,
+		});
+	});
+
+	it("treats a device revoked by an earlier version as deleted", async () => {
+		const s = accountSetup();
+		const device = { id: crypto.randomUUID(), name: "Laptop" };
+		const vault = { id: crypto.randomUUID(), name: "Notes" };
+		unwrapRpcResult(await s.account.createVault(vault));
+		await s.storage.put(`device:${device.id}`, { ...device, revoked: true });
+
+		expect(unwrapRpcResult(await s.account.devices())).toEqual([]);
+		expect(await s.account.authorizeVaultAccess(device.id, vault.id)).toMatchObject({
+			ok: false,
+			error: { kind: "forbidden" },
+		});
+
+		unwrapRpcResult(await s.account.registerDevice(device));
+
+		expect(unwrapRpcResult(await s.account.devices())).toEqual([device]);
+		unwrapRpcResult(await s.account.authorizeVaultAccess(device.id, vault.id));
+	});
+
 	it("registers and reads account devices and vaults through methods", async () => {
 		const account = new Account(
 			{ storage: new Storage() } as unknown as DurableObjectState,
@@ -389,10 +438,28 @@ describe("Durable Object RPC", () => {
 
 		expect(unwrapRpcResult(await account.createVault(vault))).toEqual(vault);
 		expect(unwrapRpcResult(await account.vault(vault.id))).toEqual(vault);
-		expect(unwrapRpcResult(await account.devices())).toEqual([{ ...device, revoked: false }]);
+		expect(unwrapRpcResult(await account.devices())).toEqual([device]);
 		expect(unwrapRpcResult(await account.vaults())).toEqual([vault]);
 	});
 });
+
+function accountSetup() {
+	const storage = new Storage();
+	const removed: [string, string][] = [];
+	const env = {
+		VAULTS: {
+			getByName: (vaultId: string) => ({
+				removeDevice: async (deviceId: string) => {
+					removed.push([vaultId, deviceId]);
+					return { ok: true, value: undefined };
+				},
+			}),
+		},
+	} as unknown as Env;
+	const account = new Account({ storage } as unknown as DurableObjectState, env);
+
+	return { storage, account, removed };
+}
 
 function socket(deviceId: string) {
 	let attachment: unknown = { deviceId, presence: null, updatedAt: 0 };
@@ -568,7 +635,7 @@ describe("realtime synchronization", () => {
 		expect([...s.objects.values()]).toEqual(["base offline"]);
 	});
 
-	it("publishes authenticated presence, clears on exit, and rejects revoked connections", async () => {
+	it("publishes authenticated presence, clears on exit, and closes deleted device connections", async () => {
 		const s = setup();
 		await s.snapshot();
 		const ws = socket(s.deviceId);
@@ -594,11 +661,8 @@ describe("realtime synchronization", () => {
 			fileId: null,
 			cursor: null,
 		});
-		await s.revoke();
-		ws.send.mockClear();
-		await s.message(s.sockets[0]!, JSON.stringify(presence));
-		expect(ws.send).not.toHaveBeenCalled();
-		expect(ws.close).toHaveBeenCalledWith(1008, expect.any(String));
+		await s.removeDevice();
+		expect(ws.close).toHaveBeenCalledWith(4003, "Device deleted");
 	});
 
 	it("reports permanent operation rejection without dropping the connection", async () => {

@@ -42,8 +42,8 @@ export class Vault extends DurableObject<Env> {
 		);
 	}
 
-	snapshot(vaultId: string, deviceId: string): Promise<RpcResult<ReadableStream<Uint8Array>>> {
-		return rpcResult(() => this.run(vaultId, deviceId, (meta) => this.readSnapshot(meta)));
+	snapshot(vaultId: string): Promise<RpcResult<ReadableStream<Uint8Array>>> {
+		return rpcResult(() => this.run(vaultId, (meta) => this.readSnapshot(meta)));
 	}
 
 	applyOperation(
@@ -54,17 +54,13 @@ export class Vault extends DurableObject<Env> {
 		return rpcResult(async () => {
 			const operation = await readOperation(stream);
 
-			return await this.run(vaultId, deviceId, (meta) => this.apply(meta, operation, deviceId));
+			return await this.run(vaultId, (meta) => this.apply(meta, operation, deviceId));
 		});
 	}
 
-	document(
-		vaultId: string,
-		deviceId: string,
-		fileId: string,
-	): Promise<RpcResult<ReadableStream<Uint8Array>>> {
+	document(vaultId: string, fileId: string): Promise<RpcResult<ReadableStream<Uint8Array>>> {
 		return rpcResult(() =>
-			this.run(vaultId, deviceId, async () => {
+			this.run(vaultId, async () => {
 				const stored = await this.repository.file(fileId);
 				const content = await this.repository.content(stored);
 
@@ -75,11 +71,10 @@ export class Vault extends DurableObject<Env> {
 
 	setExclusions(
 		vaultId: string,
-		deviceId: string,
 		exclusions: string[],
 	): Promise<RpcResult<ReadableStream<Uint8Array>>> {
 		return rpcResult(() =>
-			this.run(vaultId, deviceId, async (meta) => {
+			this.run(vaultId, async (meta) => {
 				await this.repository.setExclusions(meta, exclusions);
 				await this.maintenance.schedule();
 				this.sockets.broadcast({ type: "settings", revision: meta.revision });
@@ -94,7 +89,7 @@ export class Vault extends DurableObject<Env> {
 		deviceId: string,
 	): Promise<RpcResult<{ ticket: string; expiresAt: number }>> {
 		return rpcResult(() =>
-			this.run(vaultId, deviceId, async () => {
+			this.run(vaultId, async () => {
 				const ticket = await this.sockets.issueTicket(deviceId);
 				await this.maintenance.schedule();
 
@@ -103,13 +98,9 @@ export class Vault extends DurableObject<Env> {
 		);
 	}
 
-	downloadBlob(
-		vaultId: string,
-		deviceId: string,
-		key: string,
-	): Promise<RpcResult<ReadableStream<Uint8Array>>> {
+	downloadBlob(vaultId: string, key: string): Promise<RpcResult<ReadableStream<Uint8Array>>> {
 		return rpcResult(async () => {
-			await this.serial(() => this.authorize(vaultId, deviceId));
+			await this.serial(() => this.repository.initialize(vaultId));
 			const object = await new BlobStorage(this.env.BUCKET, vaultId).get(key);
 
 			return object.body;
@@ -118,14 +109,13 @@ export class Vault extends DurableObject<Env> {
 
 	uploadBlob(
 		vaultId: string,
-		deviceId: string,
 		key: string,
 		digest: string,
 		body: ReadableStream<Uint8Array> | null,
 		sizeHeader: string | null,
 	): Promise<RpcResult<BlobRef>> {
 		return rpcResult(async () => {
-			await this.serial(() => this.authorize(vaultId, deviceId));
+			await this.serial(() => this.repository.initialize(vaultId));
 			const blob = await new BlobStorage(this.env.BUCKET, vaultId).upload(
 				key,
 				digest,
@@ -138,8 +128,8 @@ export class Vault extends DurableObject<Env> {
 		});
 	}
 
-	revokeDevice(deviceId: string): Promise<RpcResult<void>> {
-		return rpcResult(() => this.serial(() => this.sockets.revoke(deviceId)));
+	removeDevice(deviceId: string): Promise<RpcResult<void>> {
+		return rpcResult(() => this.serial(() => this.sockets.removeDevice(deviceId)));
 	}
 
 	override async fetch(request: Request): Promise<Response> {
@@ -176,7 +166,7 @@ export class Vault extends DurableObject<Env> {
 			const message = v.parse(clientMessageSchema, JSON.parse(data));
 
 			if (message.type === "presence") {
-				const deviceId = await this.sockets.authenticate(ws);
+				const deviceId = this.sockets.authenticate(ws);
 				this.sockets.presence(ws, deviceId, message);
 				return;
 			}
@@ -198,27 +188,16 @@ export class Vault extends DurableObject<Env> {
 		console.warn({ event: "websocket.error" });
 	}
 
-	private async run<T>(
-		vaultId: string,
-		deviceId: string,
-		action: (meta: VaultMeta) => Promise<T>,
-	): Promise<T> {
+	private async run<T>(vaultId: string, action: (meta: VaultMeta) => Promise<T>): Promise<T> {
 		return await this.serial(async () => {
-			const meta = await this.authorize(vaultId, deviceId);
+			const meta = await this.repository.initialize(vaultId);
 
 			return await action(meta);
 		});
 	}
 
-	private async authorize(vaultId: string, deviceId: string): Promise<VaultMeta> {
-		const meta = await this.repository.initialize(vaultId);
-		await this.sockets.assertDeviceActive(deviceId);
-
-		return meta;
-	}
-
 	private async applySocketOperation(ws: WebSocket, operation: Operation): Promise<void> {
-		const deviceId = await this.sockets.authenticate(ws);
+		const deviceId = this.sockets.authenticate(ws);
 		const meta = await this.repository.meta();
 
 		try {

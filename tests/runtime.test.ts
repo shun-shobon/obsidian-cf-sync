@@ -11,7 +11,15 @@ import { toUint8Array, fromUint8Array } from "js-base64";
 import { assert, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
-import { apply, deviceId, document, request, uploadAsDevice, vaultId } from "./helpers/runtime-api";
+import {
+	apply,
+	deviceId,
+	document,
+	request,
+	requestAsDevice,
+	uploadAsDevice,
+	vaultId,
+} from "./helpers/runtime-api";
 import { createRuntimeClient } from "./helpers/runtime-client";
 import { createRuntimeApi } from "./helpers/runtime-transport";
 import { useWorkerRuntime } from "./helpers/worker-runtime";
@@ -276,23 +284,33 @@ describe("Durable Object and R2 runtime integration", () => {
 		}
 	}, 30_000);
 
-	it("consumes a ticket once and closes revoked device sockets", async () => {
+	it("consumes a ticket once and discards a deleted device's sockets and tickets", async () => {
 		const { mf } = await start();
-		const ticket = (await (await request(mf, "/tickets", {})).json()) as { ticket: string };
-		const connect = () =>
-			mf.dispatchFetch(`https://test/ws?ticket=${encodeURIComponent(ticket.ticket)}`, {
-				headers: { "X-Vault-Id": vaultId, Upgrade: "websocket" },
-			});
+		const issue = async (device: string) => {
+			const response = await requestAsDevice(mf, device, "/tickets", {});
+			const { ticket } = (await response.json()) as { ticket: string };
+			return () =>
+				mf.dispatchFetch(`https://test/ws?ticket=${encodeURIComponent(ticket)}`, {
+					headers: { "X-Vault-Id": vaultId, Upgrade: "websocket" },
+				});
+		};
+		const connect = await issue(deviceId);
 		const response = await connect();
 		expect(response.status).toBe(101);
 		response.webSocket!.accept();
 		expect((await connect()).status).toBe(401);
+		const unused = await issue(deviceId);
+		const otherDevice = await issue(crypto.randomUUID());
 		const closed = new Promise<number>((resolve) => {
 			response.webSocket!.addEventListener("close", (event) => resolve(event.code));
 		});
-		await request(mf, "/revoke", { deviceId });
+		await request(mf, "/remove-device", { deviceId });
 		expect(await closed).toBe(4003);
-		expect((await request(mf, "/tickets", {})).status).toBe(403);
+		expect((await unused()).status).toBe(401);
+		const other = await otherDevice();
+		expect(other.status).toBe(101);
+		other.webSocket!.accept();
+		other.webSocket!.close();
 	}, 30_000);
 });
 

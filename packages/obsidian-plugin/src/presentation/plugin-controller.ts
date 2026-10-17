@@ -114,8 +114,8 @@ export class PluginController {
 		await this.persist();
 	}
 
-	async revokeDevice(id: string) {
-		await this.account().revokeDevice(id);
+	async deleteDevice(id: string) {
+		await this.account().deleteDevice(id);
 
 		if (id === this.config.deviceId) {
 			await this.logout();

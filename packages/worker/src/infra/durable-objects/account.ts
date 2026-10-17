@@ -1,7 +1,6 @@
 import type { Device, VaultInfo } from "@cf-sync/protocol";
 import { DurableObject } from "cloudflare:workers";
 
-import { ApplicationError } from "../../domain/errors";
 import { AccountRepository } from "../account-repository";
 import type { Env } from "../env";
 import { rpcResult, unwrapRpcResult } from "../rpc-result";
@@ -31,24 +30,23 @@ export class Account extends DurableObject<Env> {
 
 	authorizeVaultAccess(deviceId: string, vaultId: string): Promise<RpcResult<void>> {
 		return rpcResult(async () => {
-			await this.activeDevice(deviceId);
+			await this.repository.assertDevice(deviceId);
 			await this.repository.vault(vaultId);
 		});
 	}
 
-	revokeDevice(id: string): Promise<RpcResult<void>> {
+	deleteDevice(id: string): Promise<RpcResult<void>> {
 		return rpcResult(async () => {
-			const device = await this.repository.device(id);
-			await this.repository.revoke(device);
+			await this.repository.deleteDevice(id);
 
 			const vaults = await this.repository.vaults();
 			await Promise.all(
 				vaults.map(async (vault) => {
-					const result = await this.env.VAULTS.getByName(vault.id).revokeDevice(id);
+					const result = await this.env.VAULTS.getByName(vault.id).removeDevice(id);
 					unwrapRpcResult(result);
 				}),
 			);
-			console.info({ event: "device.revoked", deviceId: id });
+			console.info({ event: "device.deleted", deviceId: id });
 		});
 	}
 
@@ -67,15 +65,5 @@ export class Account extends DurableObject<Env> {
 
 	vault(id: string): Promise<RpcResult<VaultInfo>> {
 		return rpcResult(() => this.repository.vault(id));
-	}
-
-	private async activeDevice(id: string): Promise<Device> {
-		const device = await this.repository.device(id);
-
-		if (device.revoked) {
-			throw new ApplicationError("forbidden", "Device revoked");
-		}
-
-		return device;
 	}
 }

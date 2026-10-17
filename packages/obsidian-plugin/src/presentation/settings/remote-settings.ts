@@ -167,25 +167,16 @@ function renderDevices(
 	devices: Device[],
 ) {
 	for (const device of devices) {
-		let description = device.id;
-
-		if (device.revoked) {
-			description += ` / ${t(($) => $.ui.revoked)}`;
-		}
-
 		new Setting(remote)
 			.setName(device.name)
-			.setDesc(description)
+			.setDesc(device.id)
 			.addButton((button) =>
-				button
-					.setButtonText(t(($) => $.ui.revoke))
-					.setDisabled(device.revoked)
-					.onClick(() => {
-						void controller.run(async () => {
-							await controller.revokeDevice(device.id);
-							refresh();
-						});
-					}),
+				button.setButtonText(t(($) => $.ui.deleteDevice)).onClick(() => {
+					void controller.run(async () => {
+						await controller.deleteDevice(device.id);
+						refresh();
+					});
+				}),
 			);
 	}
 }

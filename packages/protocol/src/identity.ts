@@ -5,7 +5,6 @@ export const idSchema = v.pipe(v.string(), v.uuid());
 export const deviceSchema = v.object({
 	id: idSchema,
 	name: v.string(),
-	revoked: v.boolean(),
 });
 
 export type Device = v.InferOutput<typeof deviceSchema>;
