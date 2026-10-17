@@ -2,42 +2,42 @@ import type { Device, VaultInfo } from "@cf-sync/protocol";
 
 import { ApplicationError } from "../domain/errors";
 
+// Records written before device deletion replaced revocation may still carry revoked: true.
+type StoredDevice = Device & { revoked?: boolean };
+
 export class AccountRepository {
 	constructor(private readonly storage: DurableObjectStorage) {}
 
-	registerDevice(input: { id: string; name: string }): Promise<Device> {
-		return this.storage.transaction(async (tx) => {
-			const previous = await tx.get<Device>(`device:${input.id}`);
-
-			if (previous?.revoked === true) {
-				throw new ApplicationError("forbidden", "Device revoked");
-			}
-
-			const device: Device = { ...input, revoked: false };
-			await tx.put(`device:${input.id}`, device);
-
-			return device;
-		});
-	}
-
-	async devices(): Promise<Device[]> {
-		const devices = await this.storage.list<Device>({ prefix: "device:" });
-
-		return [...devices.values()];
-	}
-
-	async device(id: string): Promise<Device> {
-		const device = await this.storage.get<Device>(`device:${id}`);
-
-		if (!device) {
-			throw new ApplicationError("not-found", "Unknown device");
-		}
+	async registerDevice(device: Device): Promise<Device> {
+		await this.storage.put(`device:${device.id}`, device);
 
 		return device;
 	}
 
-	async revoke(device: Device): Promise<void> {
-		await this.storage.put(`device:${device.id}`, { ...device, revoked: true });
+	/** Unlike registration, renaming must not bring a deleted device back. */
+	async renameDevice(device: Device): Promise<Device> {
+		await this.assertDevice(device.id);
+		await this.storage.put(`device:${device.id}`, device);
+
+		return device;
+	}
+
+	async devices(): Promise<Device[]> {
+		const devices = await this.storage.list<StoredDevice>({ prefix: "device:" });
+
+		return [...devices.values()].filter(isActive).map(({ id, name }) => ({ id, name }));
+	}
+
+	async assertDevice(id: string): Promise<void> {
+		const device = await this.storage.get<StoredDevice>(`device:${id}`);
+
+		if (!device || !isActive(device)) {
+			throw new ApplicationError("forbidden", "Unknown device");
+		}
+	}
+
+	async deleteDevice(id: string): Promise<void> {
+		await this.storage.delete(`device:${id}`);
 	}
 
 	async vaults(): Promise<VaultInfo[]> {
@@ -59,4 +59,8 @@ export class AccountRepository {
 	async saveVault(vault: VaultInfo): Promise<void> {
 		await this.storage.put(`vault:${vault.id}`, vault);
 	}
+}
+
+function isActive(device: StoredDevice): boolean {
+	return device.revoked !== true;
 }

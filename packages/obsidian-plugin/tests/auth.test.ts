@@ -1,3 +1,4 @@
+import { calculatePKCECodeChallenge } from "oauth4webapi";
 import * as v from "valibot";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -5,9 +6,7 @@ import { authStateSchema, metadataSchema } from "../src/domain/auth-state";
 import type { AuthState } from "../src/domain/auth-state";
 import { serverOrigin } from "../src/domain/server-origin";
 import { setLanguage } from "../src/i18n";
-import { OAuthClient } from "../src/infra/auth/oauth-client";
-import { tokenResponseSchema } from "../src/infra/auth/oauth-provider";
-import { challenge } from "../src/infra/auth/pkce";
+import { OAuthClient, tokenResponseSchema } from "../src/infra/auth/oauth-client";
 import type { HttpRequest, HttpResponse, Transport } from "../src/infra/http/transport";
 
 const serverOriginMessage = "サーバーはパスを含まない HTTPS URL を指定してください";
@@ -75,7 +74,9 @@ describe("Managed OAuth", () => {
 		const { client, state, requests, saves } = setup();
 		const url = new URL(await client.begin());
 		expect(url.searchParams.get("code_challenge_method")).toBe("S256");
-		expect(url.searchParams.get("code_challenge")).toBe(await challenge(state.pending!.verifier));
+		expect(url.searchParams.get("code_challenge")).toBe(
+			await calculatePKCECodeChallenge(state.pending!.verifier),
+		);
 		expect(url.searchParams.get("resource")).toBe("https://sync.example.com/api");
 		expect(saves()).toBe(1);
 		expect(JSON.parse(requests[3]!.body as string)).toMatchObject({

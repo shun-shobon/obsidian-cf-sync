@@ -1,10 +1,7 @@
 import * as v from "valibot";
 
-import { urlSchema } from "./url-schema";
-
 export const httpsUrlSchema = v.pipe(
-	urlSchema,
-	// v.url()が失敗してもpipeは後続の検証を実行するため、ここでも解析できるか確かめる
+	v.string(),
 	v.check((value) => URL.canParse(value) && new URL(value).protocol === "https:"),
 );
 
@@ -14,8 +11,6 @@ export const metadataSchema = v.object({
 	token_endpoint: httpsUrlSchema,
 	registration_endpoint: httpsUrlSchema,
 });
-
-export type Metadata = v.InferOutput<typeof metadataSchema>;
 
 const registrationSchema = v.object({
 	clientId: v.pipe(v.string(), v.minLength(1)),

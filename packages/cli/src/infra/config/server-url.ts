@@ -1,4 +1,4 @@
-import { normalizeServerUrl } from "../../domain/connection";
+import { normalizeServerUrl } from "../../domain/binding";
 
 export function resolveServerUrl(server: string | undefined, env: NodeJS.ProcessEnv): string {
 	const input = env["CF_SYNC_SERVER_URL"] ?? server;

@@ -2,7 +2,12 @@ import type { Content, FileRecord, Operation } from "@cf-sync/protocol";
 
 import { ApplicationError } from "../../domain/errors";
 import { TEXT_CHUNK_SIZE } from "../../domain/vault-state";
-import type { FileWrite, OperationChanges, StoredFile, VaultMeta } from "../../domain/vault-state";
+import type {
+	FileWrite,
+	OperationOutcome,
+	OperationState,
+	StoredFile,
+} from "../../domain/vault-state";
 import type { BlobStorage } from "../../infra/blob-storage";
 import type { VaultRepository } from "../../infra/vault-repository";
 import { allocateConflictPath, hasPathCollision } from "../../service/path-conflicts";
@@ -21,16 +26,12 @@ interface ContentTarget {
 
 export async function applyContentChange(
 	operation: ContentOperation,
-	current: StoredFile | undefined,
-	files: StoredFile[],
-	meta: VaultMeta,
-	changes: OperationChanges,
+	{ current, files, nextRevision }: OperationState,
 	repository: VaultRepository,
 	blobs: BlobStorage,
-): Promise<void> {
+): Promise<OperationOutcome> {
 	const target = resolveTarget(operation, current, files);
-	meta.revision++;
-	let pathRevision = meta.revision;
+	let pathRevision = nextRevision;
 	let conflict = target.conflict;
 
 	if (target.merge && current) {
@@ -42,21 +43,18 @@ export async function applyContentChange(
 	const base = {
 		id: target.id,
 		path: target.path,
-		revision: meta.revision,
+		revision: nextRevision,
 		pathRevision,
 		conflict,
 	};
 	const write = await prepareWrite(operation.content, previousText, blobs, base);
-
-	changes.result.file = write.stored.file;
-	changes.result.conflict = target.conflict;
+	const changes = { writes: [write], dirty: new Set([target.path]) };
 
 	if (target.conflict) {
-		changes.result.conflictReason = "content-preserved";
+		return { file: write.stored.file, conflictReason: "content-preserved", changes };
 	}
 
-	changes.writes.push(write);
-	changes.dirty.add(target.path);
+	return { file: write.stored.file, changes };
 }
 
 function resolveTarget(

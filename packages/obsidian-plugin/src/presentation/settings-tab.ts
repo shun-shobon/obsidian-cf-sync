@@ -4,16 +4,25 @@ import type { Setting, App, Plugin, SettingDefinitionItem } from "obsidian";
 import { serverOrigin } from "../domain/server-origin";
 import { t } from "../i18n";
 import type { PluginController } from "./plugin-controller";
-import { remoteSettingDefinitions } from "./settings/remote-settings";
+import { remoteSettingDefinitions, remoteValues } from "./settings/remote-settings";
+import type { RemoteValues } from "./settings/remote-settings";
 import { statusText } from "./status";
 
 export class SyncSettingsTab extends PluginSettingTab {
+	private readonly remote: RemoteValues;
+
 	constructor(
 		app: App,
 		plugin: Plugin,
 		private readonly controller: PluginController,
 	) {
 		super(app, plugin);
+		this.remote = remoteValues(controller);
+	}
+
+	override hide() {
+		this.clearRemoteValues();
+		super.hide();
 	}
 
 	override getSettingDefinitions(): SettingDefinitionItem[] {
@@ -34,13 +43,7 @@ export class SyncSettingsTab extends PluginSettingTab {
 					},
 					{
 						name: t(($) => $.ui.deviceName),
-						render: (setting) => {
-							setting.addText((input) =>
-								input.setValue(this.controller.config.deviceName).onChange((value) => {
-									void this.controller.run(() => this.controller.setDeviceName(value));
-								}),
-							);
-						},
+						render: (setting) => this.renderDeviceName(setting),
 					},
 					{
 						name: t(($) => $.ui.authentication),
@@ -67,10 +70,45 @@ export class SyncSettingsTab extends PluginSettingTab {
 		];
 
 		if (this.controller.config.server && this.controller.config.auth.tokens) {
-			definitions.push(...remoteSettingDefinitions(this.app, this.controller, () => this.update()));
+			definitions.push(...this.remoteSettingDefinitions());
 		}
 
 		return definitions;
+	}
+
+	private remoteSettingDefinitions() {
+		return remoteSettingDefinitions(
+			this.app,
+			this.controller,
+			this.remote,
+			() => this.refresh(),
+			() => this.update(),
+		);
+	}
+
+	private refresh() {
+		this.clearRemoteValues();
+		this.update();
+	}
+
+	private clearRemoteValues() {
+		this.remote.devices.clear();
+		this.remote.snapshot.clear();
+	}
+
+	private renderDeviceName(setting: Setting) {
+		setting.addText((input) => {
+			input.setValue(this.controller.config.deviceName).onChange((value) => {
+				void this.controller.run(() => this.controller.setDeviceName(value));
+			});
+			// change fires once editing is committed, so the server and device list are not updated per keystroke.
+			input.inputEl.addEventListener("change", () => {
+				void this.controller.run(async () => {
+					await this.controller.saveDeviceName();
+					this.refresh();
+				});
+			});
+		});
 	}
 
 	private renderServerSettings(setting: Setting) {
@@ -88,7 +126,7 @@ export class SyncSettingsTab extends PluginSettingTab {
 				button.setButtonText(t(($) => $.ui.save)).onClick(() => {
 					void this.controller.run(async () => {
 						await this.controller.changeServer(serverOrigin(server));
-						this.update();
+						this.refresh();
 					});
 				}),
 			);
@@ -112,8 +150,8 @@ export class SyncSettingsTab extends PluginSettingTab {
 		setting.addButton((button) =>
 			button.setButtonText(t(($) => $.ui.syncNow)).onClick(() => {
 				void this.controller.run(async () => {
-					await this.controller.engine?.syncNow();
-					this.update();
+					await this.controller.syncNow();
+					this.refresh();
 				});
 			}),
 		);

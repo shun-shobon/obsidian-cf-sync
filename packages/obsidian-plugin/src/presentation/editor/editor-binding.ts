@@ -9,7 +9,7 @@ import { collaborationExtension } from "./collaboration-extension";
 import { presenceExtension } from "./presence-extension";
 
 export interface EditorDocuments {
-	ensureDoc(path: string): Promise<Y.Doc | undefined>;
+	ensureDoc(path: string, attach: (doc: Y.Doc) => boolean): Promise<Y.Doc | undefined>;
 	releaseDoc(doc: Y.Doc): void;
 	getDoc(path: string): Y.Doc | undefined;
 	getAwareness(doc: Y.Doc): Awareness | undefined;
@@ -21,10 +21,9 @@ export class EditorBinding {
 	private path?: string;
 	private doc?: Y.Doc;
 	private boundEngine?: EditorDocuments;
-	private binding = false;
-	private retry = false;
+	private dirty = false;
+	private running?: Promise<void>;
 	private disposed = false;
-	private scheduled = false;
 
 	constructor(
 		private readonly view: EditorView,
@@ -40,37 +39,21 @@ export class EditorBinding {
 	}
 
 	private schedule() {
-		if (this.disposed) {
-			return;
-		}
-
-		if (this.binding) {
-			this.retry = true;
-
-			return;
-		}
-
-		if (this.scheduled) {
-			return;
-		}
-
-		this.scheduled = true;
-		queueMicrotask(() => {
-			this.scheduled = false;
-			this.binding = true;
-			void this.bind()
-				.catch(this.report)
-				.finally(() => this.finishBinding());
-		});
+		this.dirty = true;
+		this.running ??= this.drain();
 	}
 
-	private finishBinding() {
-		this.binding = false;
+	private async drain() {
+		// Binding dispatches, which CodeMirror rejects during the update that scheduled it.
+		// Waiting a microtask also merges updates from the same dispatch into one bind.
+		await Promise.resolve();
 
-		if (this.retry) {
-			this.retry = false;
-			this.schedule();
+		while (this.dirty && !this.disposed) {
+			this.dirty = false;
+			await this.bind().catch(this.report);
 		}
+
+		this.running = undefined;
 	}
 
 	private currentPath() {
@@ -100,7 +83,7 @@ export class EditorBinding {
 		this.unbind();
 		this.path = path;
 
-		if (path === undefined || path === "" || !engine) {
+		if (path === undefined || !engine) {
 			return;
 		}
 
@@ -108,16 +91,12 @@ export class EditorBinding {
 			return;
 		}
 
-		const doc = await engine.ensureDoc(path);
+		await engine.ensureDoc(path, (doc) => this.attach(engine, path, doc));
+	}
 
-		if (!doc) {
-			return;
-		}
-
+	private attach(engine: EditorDocuments, path: string, doc: Y.Doc): boolean {
 		if (!this.canAttach(engine, path, doc)) {
-			engine.releaseDoc(doc);
-
-			return;
+			return false;
 		}
 
 		this.doc = doc;
@@ -128,10 +107,12 @@ export class EditorBinding {
 				presenceExtension(doc, engine),
 			]),
 		});
+
+		return true;
 	}
 
 	private isCurrentBinding(path: string | undefined, engine: EditorDocuments | undefined): boolean {
-		if (path === undefined || path === "" || !this.doc) {
+		if (path === undefined || !this.doc) {
 			return false;
 		}
 

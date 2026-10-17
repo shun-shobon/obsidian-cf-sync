@@ -1,4 +1,8 @@
-import type { HttpRequest, HttpResponse, ServerConnection } from "@cf-sync/sync-core";
+import type {
+	HttpRequest,
+	HttpResponse,
+	ServerConnection,
+} from "@cf-sync/sync-core/infra/http/http-client";
 
 import type { Credentials } from "../../domain/credentials";
 

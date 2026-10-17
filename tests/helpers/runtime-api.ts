@@ -16,29 +16,40 @@ export async function requestAsDevice(
 	body?: unknown,
 	method?: string,
 ) {
-	let requestMethod = method;
-	let serializedBody: string | undefined;
-
-	if (body !== undefined) {
-		serializedBody = JSON.stringify(body);
+	if (body === undefined) {
+		return await dispatchAsDevice(mf, device, path, { method: method ?? "GET" });
 	}
 
-	if (requestMethod === undefined) {
-		requestMethod = "GET";
+	return await dispatchAsDevice(mf, device, path, {
+		method: method ?? "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(body),
+	});
+}
 
-		if (body !== undefined) {
-			requestMethod = "POST";
-		}
-	}
+export async function uploadAsDevice(
+	mf: Miniflare,
+	device: string,
+	key: string,
+	bytes: Uint8Array,
+	hash: string,
+) {
+	return await dispatchAsDevice(mf, device, `/blobs/${key}`, {
+		method: "PUT",
+		headers: { "X-Content-Digest": hash, "X-Content-Size": String(bytes.length) },
+		body: bytes,
+	});
+}
 
+async function dispatchAsDevice(
+	mf: Miniflare,
+	device: string,
+	path: string,
+	init: { method: string; headers?: Record<string, string>; body?: string | Uint8Array },
+) {
 	return await mf.dispatchFetch(`https://test${path}`, {
-		method: requestMethod,
-		headers: {
-			"X-Vault-Id": vaultId,
-			"X-Device-Id": device,
-			"Content-Type": "application/json",
-		},
-		body: serializedBody,
+		...init,
+		headers: { "X-Vault-Id": vaultId, "X-Device-Id": device, ...init.headers },
 	});
 }
 
@@ -51,7 +62,8 @@ export async function apply(mf: Miniflare, operation: Operation) {
 	return (await response.json()) as OperationResult;
 }
 
-export async function document(mf: Miniflare, id: string) {
-	const response = await request(mf, `/files/${id}`);
+export async function document(mf: Miniflare, id: string, device: string = deviceId) {
+	const response = await requestAsDevice(mf, device, `/files/${id}`);
+
 	return (await response.json()) as DocumentResponse;
 }

@@ -16,7 +16,6 @@ export interface SyncSessionHooks {
 	onEdit: (file: LocalFile, doc: Y.Doc) => void;
 	onRemap: (doc: Y.Doc, fileId: string) => void;
 	onQueued: () => void;
-	onQueueError: (error: unknown) => void;
 	confirmInitial: (paths: string[]) => Promise<boolean>;
 }
 
@@ -28,7 +27,6 @@ export function batchHooks(conflicts: FileRecord[]): SyncSessionHooks {
 		onEdit: () => {},
 		onRemap: () => {},
 		onQueued: () => {},
-		onQueueError: () => {},
 		confirmInitial: () => Promise.resolve(true),
 	};
 }
@@ -44,7 +42,7 @@ export class SyncSession {
 
 	constructor(
 		private readonly options: SyncOnceOptions,
-		private readonly hooks: SyncSessionHooks,
+		hooks: SyncSessionHooks,
 	) {
 		const { vault, store, api } = options;
 
@@ -66,7 +64,8 @@ export class SyncSession {
 
 	enqueue<T>(work: () => T | Promise<T>): Promise<T> {
 		const result = this.serial.then(work);
-		this.serial = result.catch(this.hooks.onQueueError);
+		// The caller receives the failure; later work must still run.
+		this.serial = result.catch(() => {});
 
 		return result;
 	}

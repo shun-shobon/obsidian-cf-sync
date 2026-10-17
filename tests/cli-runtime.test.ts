@@ -1,58 +1,29 @@
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
-import { ConnectionError, PlanSync, SyncOnce, VaultApi } from "@cf-sync/sync-core";
-import type { SyncResult } from "@cf-sync/sync-core";
-import { build } from "esbuild";
-import { Miniflare } from "miniflare";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { ConnectionError } from "@cf-sync/sync-core/domain/connection-error";
+import { VaultApi } from "@cf-sync/sync-core/infra/http/server-api";
+import { PlanSync } from "@cf-sync/sync-core/sync/usecase/plan-sync";
+import { SyncOnce } from "@cf-sync/sync-core/sync/usecase/sync-once";
+import type { SyncOnceOptions } from "@cf-sync/sync-core/sync/usecase/sync-once-options";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { FileVault } from "../packages/cli/src/infra/fs/vault-adapter";
 import { ensureMetadataDirectory } from "../packages/cli/src/infra/fs/vault-binding";
 import { serverConnection } from "../packages/cli/src/infra/http/server-connection";
 import { SqliteStore } from "../packages/cli/src/infra/storage/sqlite-store";
 import { syncExitCode } from "../packages/cli/src/presentation/output";
+import { useWorkerRuntime } from "./helpers/worker-runtime";
 
-let script: string;
-const runtimes: Miniflare[] = [];
-const folders: string[] = [];
+const runtime = useWorkerRuntime();
 const encode = (text: string) => new TextEncoder().encode(text);
-
-beforeAll(async () => {
-	const built = await build({
-		entryPoints: ["tests/fixtures/worker.ts"],
-		bundle: true,
-		write: false,
-		format: "esm",
-		platform: "browser",
-		target: "es2022",
-		external: ["cloudflare:workers"],
-	});
-	script = built.outputFiles[0]!.text;
-});
 
 afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-afterAll(async () => {
-	await Promise.all(runtimes.map((runtime) => runtime.dispose()));
-	await Promise.all(folders.map((folder) => rm(folder, { recursive: true, force: true })));
-});
-
 async function start() {
-	const mf = new Miniflare({
-		modules: true,
-		script,
-		compatibilityDate: "2026-07-30",
-		durableObjects: {
-			VAULTS: { className: "TestVault", useSQLite: true },
-			ACCOUNT: { className: "Account", useSQLite: true },
-		},
-		r2Buckets: ["BUCKET"],
-	});
-	runtimes.push(mf);
+	const mf = runtime.start();
 	const vaultId = crypto.randomUUID();
 	let loseAcknowledgment = false;
 	const fetcher: typeof fetch = async (input, init) => {
@@ -81,8 +52,7 @@ async function start() {
 	};
 	vi.stubGlobal("fetch", fetcher);
 	return async () => {
-		const root = await mkdtemp(join(tmpdir(), "cf-sync-cli-"));
-		folders.push(root);
+		const root = await runtime.temporaryDirectory();
 		const metadata = await ensureMetadataDirectory(root);
 		const vault = new FileVault(root);
 		const api = new VaultApi(
@@ -93,12 +63,10 @@ async function start() {
 			crypto.randomUUID(),
 			vaultId,
 		);
-		const run = async (dryRun = false) => {
-			const store = new SqliteStore(join(metadata, "state.sqlite"));
+		const withStore = async <T>(dryRun: boolean, use: (ports: SyncOnceOptions) => Promise<T>) => {
+			const store = new SqliteStore(join(metadata, "state.sqlite"), dryRun);
 			try {
-				return dryRun
-					? await new PlanSync({ vault, store, api }).run()
-					: await new SyncOnce({ vault, store, api }).run();
+				return await use({ vault, store, api });
 			} finally {
 				store.close();
 			}
@@ -107,7 +75,8 @@ async function start() {
 			root,
 			vault,
 			api,
-			run,
+			run: () => withStore(false, (ports) => new SyncOnce(ports).run()),
+			plan: () => withStore(true, (ports) => new PlanSync(ports).run()),
 			loseNextAcknowledgment: () => {
 				loseAcknowledgment = true;
 			},
@@ -222,7 +191,7 @@ describe("CLI filesystem and SQLite against the real Worker", () => {
 			pending: 0,
 			conflicts: [expect.objectContaining({ kind: "text" })],
 		});
-		expect(syncExitCode(result as SyncResult)).toBe(2);
+		expect(syncExitCode(result)).toBe(2);
 		await left.run();
 		const paths = await right.vault.list();
 		expect(paths).toHaveLength(2);
@@ -235,12 +204,12 @@ describe("CLI filesystem and SQLite against the real Worker", () => {
 		const snapshot = await right.api.snapshot();
 		const repeated = await right.run();
 		expect(repeated).toMatchObject({ pending: 0, conflicts: [] });
-		expect(syncExitCode(repeated as SyncResult)).toBe(0);
+		expect(syncExitCode(repeated)).toBe(0);
 		expect(await right.api.snapshot()).toEqual(snapshot);
 
 		const store = new SqliteStore(join(right.root, ".cf-sync/state.sqlite"));
 		try {
-			expect((await store.load())?.conflicts).toEqual((result as SyncResult).conflicts);
+			expect((await store.load())?.conflicts).toEqual(result.conflicts);
 		} finally {
 			store.close();
 		}
@@ -258,7 +227,7 @@ describe("CLI filesystem and SQLite against the real Worker", () => {
 		await right.vault.write("local.md", encode("local addition"));
 		const before = await contents(right.root);
 		const remote = await right.api.snapshot();
-		const plan = await right.run(true);
+		const plan = await right.plan();
 		expect(plan).toMatchObject({
 			uploads: [expect.objectContaining({ path: "local.md", action: "create" })],
 			downloads: [expect.objectContaining({ path: "remote.md", action: "write" })],

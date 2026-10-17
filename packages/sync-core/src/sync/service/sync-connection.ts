@@ -4,16 +4,15 @@ import { ConnectionError } from "../../domain/connection-error";
 import { t } from "../../i18n";
 import type { ApiPort, SyncSocket } from "../ports/api-port";
 
+interface PendingOperation {
+	resolve(result: OperationResult): void;
+	reject(error: unknown): void;
+	timer: ReturnType<typeof setTimeout>;
+}
+
 export class SyncConnection {
 	private socket: SyncSocket | undefined;
-	private readonly pending = new Map<
-		string,
-		{
-			resolve(result: OperationResult): void;
-			reject(error: unknown): void;
-			timer: number;
-		}
-	>();
+	private readonly pending = new Map<string, PendingOperation>();
 	generation = 0;
 
 	constructor(
@@ -35,7 +34,7 @@ export class SyncConnection {
 
 	operate(operation: Operation): Promise<OperationResult> {
 		return new Promise((resolve, reject) => {
-			const timer = window.setTimeout(() => {
+			const timer = setTimeout(() => {
 				this.pending.delete(operation.opId);
 				reject(new ConnectionError(t(($) => $.errors.websocketTimeout)));
 			}, 15_000);
@@ -43,8 +42,7 @@ export class SyncConnection {
 			try {
 				this.send({ type: "operation", operation });
 			} catch (error) {
-				window.clearTimeout(timer);
-				this.pending.delete(operation.opId);
+				this.settle(operation.opId);
 				throw error;
 			}
 		});
@@ -55,7 +53,7 @@ export class SyncConnection {
 		const socket = this.socket;
 		this.socket = undefined;
 		for (const pending of this.pending.values()) {
-			window.clearTimeout(pending.timer);
+			clearTimeout(pending.timer);
 			pending.reject(new ConnectionError(t(($) => $.errors.websocketDisconnected)));
 		}
 		this.pending.clear();
@@ -76,25 +74,11 @@ export class SyncConnection {
 					return;
 				}
 				if (message.type === "operation-error") {
-					const pending = this.pending.get(message.opId);
-					if (pending) {
-						window.clearTimeout(pending.timer);
-						this.pending.delete(message.opId);
-						let error: Error = new Error(message.message);
-						if (message.retryable) {
-							error = new ConnectionError(message.message);
-						}
-						pending.reject(error);
-					}
+					this.settle(message.opId)?.reject(operationError(message));
 					return;
 				}
 				if (message.type === "operation-result") {
-					const pending = this.pending.get(message.result.opId);
-					if (pending) {
-						window.clearTimeout(pending.timer);
-						this.pending.delete(message.result.opId);
-						pending.resolve(message.result);
-					}
+					this.settle(message.result.opId)?.resolve(message.result);
 					return;
 				}
 				this.onMessage(message);
@@ -113,4 +97,22 @@ export class SyncConnection {
 
 		this.socket = socket;
 	}
+
+	private settle(opId: string): PendingOperation | undefined {
+		const pending = this.pending.get(opId);
+		if (pending) {
+			clearTimeout(pending.timer);
+			this.pending.delete(opId);
+		}
+
+		return pending;
+	}
+}
+
+function operationError(message: Extract<ServerMessage, { type: "operation-error" }>): Error {
+	if (message.retryable) {
+		return new ConnectionError(message.message);
+	}
+
+	return new Error(message.message);
 }

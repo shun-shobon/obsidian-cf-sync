@@ -1,10 +1,4 @@
-import "../packages/obsidian-plugin/tests/helpers/browser-window";
-import { mkdtemp, rm } from "node:fs/promises";
-
 import "fake-indexeddb/auto";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import { digest } from "@cf-sync/protocol";
 import type {
 	Operation,
@@ -13,58 +7,29 @@ import type {
 	BlobRef,
 	ServerMessage,
 } from "@cf-sync/protocol";
-import { build } from "esbuild";
 import { toUint8Array, fromUint8Array } from "js-base64";
-import { Miniflare } from "miniflare";
-import { afterAll, assert, beforeAll, describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
-import { apply, deviceId, document, request, vaultId } from "./helpers/runtime-api";
+import {
+	apply,
+	deviceId,
+	document,
+	request,
+	requestAsDevice,
+	uploadAsDevice,
+	vaultId,
+} from "./helpers/runtime-api";
 import { createRuntimeClient } from "./helpers/runtime-client";
 import { createRuntimeApi } from "./helpers/runtime-transport";
+import { useWorkerRuntime } from "./helpers/worker-runtime";
 
-let script: string;
-
-beforeAll(async () => {
-	const built = await build({
-		entryPoints: ["tests/fixtures/worker.ts"],
-		bundle: true,
-		write: false,
-		format: "esm",
-		platform: "browser",
-		target: "es2022",
-		external: ["cloudflare:workers"],
-	});
-	script = built.outputFiles[0]!.text;
-});
-
-const runtimes: Miniflare[] = [];
-const folders: string[] = [];
-
-afterAll(async () => {
-	await Promise.all(runtimes.map((runtime) => runtime.dispose()));
-	await Promise.all(folders.map((folder) => rm(folder, { recursive: true, force: true })));
-});
+const runtime = useWorkerRuntime();
 
 async function start(folder?: string) {
-	const storage = folder ?? (await mkdtemp(join(tmpdir(), "cf-sync-test-")));
-	if (folder === undefined) {
-		folders.push(storage);
-	}
-	const mf = new Miniflare({
-		modules: true,
-		script,
-		compatibilityDate: "2026-07-30",
-		durableObjects: {
-			VAULTS: { className: "TestVault", useSQLite: true },
-			ACCOUNT: { className: "Account", useSQLite: true },
-		},
-		r2Buckets: ["BUCKET"],
-		durableObjectsPersist: join(storage, "do"),
-		r2Persist: join(storage, "r2"),
-	});
-	runtimes.push(mf);
-	return { mf, storage };
+	const storage = folder ?? (await runtime.temporaryDirectory());
+
+	return { mf: runtime.start(storage), storage };
 }
 
 function textUpdate(text: string) {
@@ -105,8 +70,7 @@ describe("Durable Object and R2 runtime integration", () => {
 		expect(await (await bucket.get(`vaults/${vaultId}/files/日記/ノート.md`))!.text()).toBe(
 			"日本語のノート",
 		);
-		await mf.dispose();
-		runtimes.splice(runtimes.indexOf(mf), 1);
+		await runtime.dispose(mf);
 		const restarted = (await start(storage)).mf;
 		expect((await apply(restarted, op)).revision).toBe(first.revision);
 		expect(plain(await document(restarted, id))).toBe("日本語のノート");
@@ -187,16 +151,7 @@ describe("Durable Object and R2 runtime integration", () => {
 		const bytes = new Uint8Array(20 * 1024 * 1024).fill(123);
 		const key = crypto.randomUUID();
 		const hash = await digest(bytes);
-		const uploaded = await mf.dispatchFetch(`https://test/blobs/${key}`, {
-			method: "PUT",
-			headers: {
-				"X-Vault-Id": vaultId,
-				"X-Device-Id": deviceId,
-				"X-Content-Digest": hash,
-				"X-Content-Size": String(bytes.length),
-			},
-			body: bytes,
-		});
+		const uploaded = await uploadAsDevice(mf, deviceId, key, bytes, hash);
 		assert.strictEqual(uploaded.status, 200, await uploaded.clone().text());
 		const blob = (await uploaded.json()) as BlobRef;
 		const downloaded = await request(mf, `/blobs/${key}`);
@@ -329,23 +284,33 @@ describe("Durable Object and R2 runtime integration", () => {
 		}
 	}, 30_000);
 
-	it("consumes a ticket once and closes revoked device sockets", async () => {
+	it("consumes a ticket once and discards a deleted device's sockets and tickets", async () => {
 		const { mf } = await start();
-		const ticket = (await (await request(mf, "/tickets", {})).json()) as { ticket: string };
-		const connect = () =>
-			mf.dispatchFetch(`https://test/ws?ticket=${encodeURIComponent(ticket.ticket)}`, {
-				headers: { "X-Vault-Id": vaultId, Upgrade: "websocket" },
-			});
+		const issue = async (device: string) => {
+			const response = await requestAsDevice(mf, device, "/tickets", {});
+			const { ticket } = (await response.json()) as { ticket: string };
+			return () =>
+				mf.dispatchFetch(`https://test/ws?ticket=${encodeURIComponent(ticket)}`, {
+					headers: { "X-Vault-Id": vaultId, Upgrade: "websocket" },
+				});
+		};
+		const connect = await issue(deviceId);
 		const response = await connect();
 		expect(response.status).toBe(101);
 		response.webSocket!.accept();
 		expect((await connect()).status).toBe(401);
+		const unused = await issue(deviceId);
+		const otherDevice = await issue(crypto.randomUUID());
 		const closed = new Promise<number>((resolve) => {
 			response.webSocket!.addEventListener("close", (event) => resolve(event.code));
 		});
-		await request(mf, "/revoke", { deviceId });
+		await request(mf, "/remove-device", { deviceId });
 		expect(await closed).toBe(4003);
-		expect((await request(mf, "/tickets", {})).status).toBe(403);
+		expect((await unused()).status).toBe(401);
+		const other = await otherDevice();
+		expect(other.status).toBe(101);
+		other.webSocket!.accept();
+		other.webSocket!.close();
 	}, 30_000);
 });
 
@@ -361,14 +326,16 @@ describe("client engine against the real DO", () => {
 			expect(right.text("note.md")).toBe("base");
 			left.engine.pause();
 			right.engine.pause();
-			(await left.engine.ensureDoc("note.md"))!.getText("content").insert(0, "LEFT ");
-			(await right.engine.ensureDoc("note.md"))!.getText("content").insert(4, " RIGHT");
+			const leftText = (await left.engine.ensureDoc("note.md", () => true))!.getText("content");
+			const rightText = (await right.engine.ensureDoc("note.md", () => true))!.getText("content");
+			leftText.insert(0, "LEFT ");
+			rightText.insert(4, " RIGHT");
 			await left.engine.resume();
 			await right.engine.resume();
 			await left.engine.syncNow();
 			await right.engine.syncNow();
-			expect(left.text("note.md")).toBe("LEFT base RIGHT");
-			expect(right.text("note.md")).toBe(left.text("note.md"));
+			expect(leftText.toString()).toBe("LEFT base RIGHT");
+			expect(rightText.toString()).toBe(leftText.toString());
 			await request(mf, "/flush");
 			const bucket = await mf.getR2Bucket("BUCKET");
 			expect(await (await bucket.get(`vaults/${vaultId}/files/note.md`))!.text()).toBe(

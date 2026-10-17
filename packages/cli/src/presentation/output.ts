@@ -1,4 +1,5 @@
-import type { SyncPlan, SyncResult } from "@cf-sync/sync-core";
+import type { SyncPlan } from "@cf-sync/sync-core/sync/domain/sync-plan";
+import type { SyncResult } from "@cf-sync/sync-core/sync/domain/sync-result";
 
 import type { CliContext } from "./context";
 

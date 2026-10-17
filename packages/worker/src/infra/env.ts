@@ -8,3 +8,7 @@ export interface Env {
 	ACCESS_TEAM_DOMAIN: string;
 	ACCESS_AUD: string;
 }
+
+export function ownerAccount(env: Env): DurableObjectStub<Account> {
+	return env.ACCOUNT.getByName("owner");
+}

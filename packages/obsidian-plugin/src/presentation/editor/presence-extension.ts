@@ -21,6 +21,8 @@ export function presenceExtension(
 				this.window?.addEventListener("blur", this.clear);
 				this.window?.addEventListener("focus", this.publish);
 				this.document.addEventListener("visibilitychange", this.publish);
+				// update.focusChanged is not enough: CodeMirror reports focus after 10ms and
+				// drops a focus/blur pair within it, leaving a cursor published by another path.
 				view.contentDOM.addEventListener("focus", this.publish);
 				view.contentDOM.addEventListener("blur", this.clear);
 				// Installing the extension happens inside dispatch. Publish after the

@@ -1,4 +1,4 @@
-export { blobSchema, contentSchema, type BlobRef, type Content } from "./content";
+export { blobSchema, digestSchema, type BlobRef, type Content } from "./content";
 
 export { connectionTicketSchema, parseServerOrigin } from "./connection";
 
@@ -6,7 +6,6 @@ export { digest } from "./digest";
 
 export {
 	documentSchema,
-	fileRecordSchema,
 	snapshotSchema,
 	type DocumentResponse,
 	type FileRecord,

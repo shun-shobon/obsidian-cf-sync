@@ -1,5 +1,5 @@
 export class SyncScheduler {
-	private timer: number | undefined;
+	private timer: ReturnType<typeof setTimeout> | undefined;
 	private retryDelay = 1000;
 	private due = Infinity;
 
@@ -12,7 +12,7 @@ export class SyncScheduler {
 		}
 		this.cancel();
 		this.due = due;
-		this.timer = window.setTimeout(() => {
+		this.timer = setTimeout(() => {
 			this.timer = undefined;
 			this.due = Infinity;
 			this.run();
@@ -30,7 +30,7 @@ export class SyncScheduler {
 	}
 
 	cancel(): void {
-		window.clearTimeout(this.timer);
+		clearTimeout(this.timer);
 		this.timer = undefined;
 		this.due = Infinity;
 	}

@@ -1,16 +1,13 @@
 import type { Operation } from "@cf-sync/protocol";
 
 import { ApplicationError } from "../../domain/errors";
-import type { OperationChanges, StoredFile, VaultMeta } from "../../domain/vault-state";
+import type { OperationOutcome, OperationState } from "../../domain/vault-state";
 import { hasPathCollision } from "../../service/path-conflicts";
 
 export function applyMove(
 	operation: Extract<Operation, { type: "move" }>,
-	current: StoredFile | undefined,
-	files: StoredFile[],
-	meta: VaultMeta,
-	changes: OperationChanges,
-): void {
+	{ current, files, nextRevision }: OperationState,
+): OperationOutcome {
 	if (!current) {
 		throw new ApplicationError("not-found", "File not found");
 	}
@@ -19,21 +16,21 @@ export function applyMove(
 	const destinationOccupied = hasPathCollision(operation.path, files, operation.fileId);
 
 	if (pathChanged || destinationOccupied) {
-		changes.result.conflict = true;
-		changes.result.conflictReason = "move-rejected";
-		changes.result.file = current.file;
-		return;
+		return { file: current.file, conflictReason: "move-rejected" };
 	}
 
-	meta.revision++;
-	changes.dirty.add(current.file.path);
-	changes.dirty.add(operation.path);
 	const file = {
 		...current.file,
 		path: operation.path,
-		pathRevision: meta.revision,
-		revision: meta.revision,
+		pathRevision: nextRevision,
+		revision: nextRevision,
 	};
-	changes.result.file = file;
-	changes.writes.push({ stored: { ...current, file } });
+
+	return {
+		file,
+		changes: {
+			writes: [{ stored: { ...current, file } }],
+			dirty: new Set([current.file.path, operation.path]),
+		},
+	};
 }

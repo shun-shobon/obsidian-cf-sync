@@ -5,7 +5,7 @@ import { join } from "node:path";
 import * as v from "valibot";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { bindingSchema } from "../src/domain/connection";
+import { bindingSchema } from "../src/domain/binding";
 import { resolveCredentials } from "../src/infra/config/credentials";
 import { FileVault } from "../src/infra/fs/vault-adapter";
 import { SqliteStore } from "../src/infra/storage/sqlite-store";
@@ -72,6 +72,17 @@ describe("CLI persistence and filesystem", () => {
 		expect(await vault.list()).toEqual(["assets/image.bin"]);
 		expect(new Uint8Array(await vault.read("assets/image.bin"))).toEqual(bytes);
 		await expect(vault.write(".cf-sync/vault.json", bytes)).rejects.toThrow("Unsafe Vault path");
+	});
+
+	it("checks file existence with case-sensitive paths", async () => {
+		const root = await temporary();
+		const vault = new FileVault(root);
+		await vault.write("Folder/Note.md", new Uint8Array([1]));
+		expect(await vault.exists("Folder/Note.md")).toBe(true);
+		expect(await vault.exists("Folder/note.md")).toBe(false);
+		expect(await vault.exists("folder/Note.md")).toBe(false);
+		expect(await vault.exists("Folder")).toBe(false);
+		expect(await vault.exists("Missing/Note.md")).toBe(false);
 	});
 
 	it("rejects a second lock and allows a later invocation", async () => {

@@ -31,16 +31,22 @@ export async function mergeText(
 			Y.applyUpdate(doc, toUint8Array(previous));
 		}
 
-		Y.applyUpdate(doc, toUint8Array(update));
+		applyClientUpdate(doc, update);
 		if (doc.store.pendingStructs || doc.store.pendingDs) {
 			throw new ApplicationError("invalid-input", "Missing Yjs update dependencies");
 		}
 		const plain = new TextEncoder().encode(doc.getText("content").toJSON());
 
 		return { update: Y.encodeStateAsUpdate(doc), size: plain.length, digest: await digest(plain) };
-	} catch {
-		throw new ApplicationError("invalid-input", "Invalid Yjs update");
 	} finally {
 		doc.destroy();
+	}
+}
+
+function applyClientUpdate(doc: Y.Doc, update: string): void {
+	try {
+		Y.applyUpdate(doc, toUint8Array(update));
+	} catch {
+		throw new ApplicationError("invalid-input", "Invalid Yjs update");
 	}
 }

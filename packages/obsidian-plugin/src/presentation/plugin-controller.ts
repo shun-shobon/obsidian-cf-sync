@@ -45,7 +45,7 @@ export class PluginController {
 		return this.saveQueue;
 	}
 
-	authentication(): OAuthClient {
+	private authentication(): OAuthClient {
 		this.auth ??= new OAuthClient(this.config.server, this.config.auth, obsidianTransport, () =>
 			this.persist(),
 		);
@@ -114,8 +114,20 @@ export class PluginController {
 		await this.persist();
 	}
 
-	async revokeDevice(id: string) {
-		await this.account().revokeDevice(id);
+	async saveDeviceName() {
+		const trimmed = this.config.deviceName.trim();
+		const loggedIn = Boolean(this.config.server && this.config.auth.tokens);
+
+		// Login registers the device with its current name.
+		if (!trimmed || !loggedIn) {
+			return;
+		}
+
+		await this.account().renameDevice(this.config.deviceId, trimmed);
+	}
+
+	async deleteDevice(id: string) {
+		await this.account().deleteDevice(id);
 
 		if (id === this.config.deviceId) {
 			await this.logout();

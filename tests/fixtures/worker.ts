@@ -1,14 +1,11 @@
 import type { Operation } from "@cf-sync/protocol";
 import { Hono } from "hono";
 
-import { Account } from "../../packages/worker/src/infra/durable-objects/account";
 import { Vault } from "../../packages/worker/src/infra/durable-objects/vault";
 import type { Env } from "../../packages/worker/src/infra/env";
 import { onError } from "../../packages/worker/src/infra/http/responses";
 import { jsonStream } from "../../packages/worker/src/infra/rpc-json";
 import { unwrapRpcResult } from "../../packages/worker/src/infra/rpc-result";
-
-export { Account };
 
 export class TestVault extends Vault {
 	private readonly incarnation = crypto.randomUUID();
@@ -66,7 +63,7 @@ app.get("/runtime-state", async (c) => {
 });
 
 app.get("/snapshot", async (c) => {
-	const result = await c.get("vault").snapshot(c.get("vaultId"), c.get("deviceId"));
+	const result = await c.get("vault").snapshot(c.get("vaultId"));
 	return new Response(unwrapRpcResult(result), { headers: { "Content-Type": "application/json" } });
 });
 
@@ -79,17 +76,13 @@ app.post("/operations", async (c) => {
 });
 
 app.get("/files/:id", async (c) => {
-	const result = await c
-		.get("vault")
-		.document(c.get("vaultId"), c.get("deviceId"), c.req.param("id"));
+	const result = await c.get("vault").document(c.get("vaultId"), c.req.param("id"));
 	return new Response(unwrapRpcResult(result), { headers: { "Content-Type": "application/json" } });
 });
 
 app.put("/exclusions", async (c) => {
 	const { exclusions } = await c.req.json<{ exclusions: string[] }>();
-	const result = await c
-		.get("vault")
-		.setExclusions(c.get("vaultId"), c.get("deviceId"), exclusions);
+	const result = await c.get("vault").setExclusions(c.get("vaultId"), exclusions);
 	return new Response(unwrapRpcResult(result), { headers: { "Content-Type": "application/json" } });
 });
 
@@ -99,9 +92,7 @@ app.post("/tickets", async (c) => {
 });
 
 app.get("/blobs/:id", async (c) => {
-	const result = await c
-		.get("vault")
-		.downloadBlob(c.get("vaultId"), c.get("deviceId"), c.req.param("id"));
+	const result = await c.get("vault").downloadBlob(c.get("vaultId"), c.req.param("id"));
 	return new Response(unwrapRpcResult(result));
 });
 
@@ -116,7 +107,6 @@ app.put("/blobs/:id", async (c) => {
 		.get("vault")
 		.uploadBlob(
 			c.get("vaultId"),
-			c.get("deviceId"),
 			c.req.param("id"),
 			digest,
 			c.req.raw.body,
@@ -125,9 +115,9 @@ app.put("/blobs/:id", async (c) => {
 	return c.json(unwrapRpcResult(result));
 });
 
-app.post("/revoke", async (c) => {
+app.post("/remove-device", async (c) => {
 	const { deviceId } = await c.req.json<{ deviceId: string }>();
-	unwrapRpcResult(await c.get("vault").revokeDevice(deviceId));
+	unwrapRpcResult(await c.get("vault").removeDevice(deviceId));
 	return c.body(null);
 });
 

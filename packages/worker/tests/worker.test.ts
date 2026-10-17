@@ -93,17 +93,16 @@ function setup() {
 			vault.webSocketClose(ws, 1000);
 		},
 		snapshot: async () => {
-			const result = unwrapRpcResult(await vault.snapshot(vaultId, deviceId));
+			const result = unwrapRpcResult(await vault.snapshot(vaultId));
 			return await new Response(result).json<Snapshot>();
 		},
 		exclusions: async (paths: string[]) =>
-			unwrapRpcResult(await vault.setExclusions(vaultId, deviceId, paths)),
+			unwrapRpcResult(await vault.setExclusions(vaultId, paths)),
 		ticket: async () => unwrapRpcResult(await vault.issueTicket(vaultId, deviceId)),
-		revoke: async () => unwrapRpcResult(await vault.revokeDevice(deviceId)),
+		removeDevice: async () => unwrapRpcResult(await vault.removeDevice(deviceId)),
 		operation,
 		vaultId,
 		deviceId,
-		fetch: (request: Request) => vault.fetch(request),
 		fail: (value: boolean) => {
 			fail = value;
 		},
@@ -340,29 +339,12 @@ it("fails closed without Access configuration or a signed assertion", async () =
 });
 
 describe("Durable Object RPC", () => {
-	it.each([
-		["/snapshot", "POST"],
-		["/operations", "PUT"],
-		["/ws", "POST"],
-		["/revoke", "GET"],
-		["/snapshot/extra", "GET"],
-		["/files", "GET"],
-	])("rejects %s with method %s", async (path, method) => {
+	it("discards a removed device's unused tickets without vault headers", async () => {
 		const s = setup();
-		const response = await s.fetch(
-			new Request(`https://internal${path}`, {
-				method,
-				headers: { "X-Vault-Id": s.vaultId, "X-Device-Id": s.deviceId },
-			}),
-		);
-		expect(response.status).toBe(404);
-		expect(await response.json()).toEqual({ error: "Not found" });
-	});
+		await s.ticket();
+		await s.removeDevice();
 
-	it("revokes without vault headers and rejects subsequent authenticated operations", async () => {
-		const s = setup();
-		await s.revoke();
-		await expect(s.snapshot()).rejects.toMatchObject({ kind: "forbidden" });
+		expect([...s.storage.data.keys()].some((key) => key.startsWith("ticket:"))).toBe(false);
 	});
 
 	it.each(["{", JSON.stringify({ type: "create" })])(
@@ -382,12 +364,65 @@ describe("Durable Object RPC", () => {
 		},
 	);
 
+	it("returns only public snapshot fields", async () => {
+		const s = setup();
+
+		expect(await s.snapshot()).toEqual({ revision: 0, r2Revision: 0, files: [], exclusions: [] });
+	});
+
 	it("reads the latest metadata for every request", async () => {
 		const s = setup();
 		await s.operation(create("first.md", "first"));
 		expect((await s.snapshot()).revision).toBe(1);
 		await s.operation(create("second.md", "second"));
 		expect((await s.snapshot()).revision).toBe(2);
+	});
+
+	it("deletes a device from every vault and accepts the same ID again", async () => {
+		const s = accountSetup();
+		const device = { id: crypto.randomUUID(), name: "Laptop" };
+		const vaultIds = [crypto.randomUUID(), crypto.randomUUID()];
+		unwrapRpcResult(await s.account.registerDevice(device));
+
+		for (const id of vaultIds) {
+			unwrapRpcResult(await s.account.createVault({ id, name: "Notes" }));
+		}
+
+		unwrapRpcResult(await s.account.deleteDevice(device.id));
+
+		expect(s.removed).toEqual(vaultIds.map((vaultId) => [vaultId, device.id]));
+		expect(unwrapRpcResult(await s.account.devices())).toEqual([]);
+		expect(await s.account.authorizeVaultAccess(device.id, vaultIds[0]!)).toMatchObject({
+			ok: false,
+			error: { kind: "forbidden" },
+		});
+
+		unwrapRpcResult(await s.account.registerDevice(device));
+
+		expect(unwrapRpcResult(await s.account.devices())).toEqual([device]);
+		expect(await s.account.authorizeVaultAccess(device.id, vaultIds[0]!)).toEqual({
+			ok: true,
+			value: undefined,
+		});
+	});
+
+	it("treats a device revoked by an earlier version as deleted", async () => {
+		const s = accountSetup();
+		const device = { id: crypto.randomUUID(), name: "Laptop" };
+		const vault = { id: crypto.randomUUID(), name: "Notes" };
+		unwrapRpcResult(await s.account.createVault(vault));
+		await s.storage.put(`device:${device.id}`, { ...device, revoked: true });
+
+		expect(unwrapRpcResult(await s.account.devices())).toEqual([]);
+		expect(await s.account.authorizeVaultAccess(device.id, vault.id)).toMatchObject({
+			ok: false,
+			error: { kind: "forbidden" },
+		});
+
+		unwrapRpcResult(await s.account.registerDevice(device));
+
+		expect(unwrapRpcResult(await s.account.devices())).toEqual([device]);
+		unwrapRpcResult(await s.account.authorizeVaultAccess(device.id, vault.id));
 	});
 
 	it("registers and reads account devices and vaults through methods", async () => {
@@ -398,16 +433,33 @@ describe("Durable Object RPC", () => {
 		const device = { id: crypto.randomUUID(), name: "Laptop" };
 
 		expect(unwrapRpcResult(await account.registerDevice(device))).toMatchObject(device);
-		expect(unwrapRpcResult(await account.device(device.id))).toMatchObject(device);
 
 		const vault = { id: crypto.randomUUID(), name: "Notes" };
 
 		expect(unwrapRpcResult(await account.createVault(vault))).toEqual(vault);
 		expect(unwrapRpcResult(await account.vault(vault.id))).toEqual(vault);
-		expect(unwrapRpcResult(await account.devices())).toHaveLength(1);
+		expect(unwrapRpcResult(await account.devices())).toEqual([device]);
 		expect(unwrapRpcResult(await account.vaults())).toEqual([vault]);
 	});
 });
+
+function accountSetup() {
+	const storage = new Storage();
+	const removed: [string, string][] = [];
+	const env = {
+		VAULTS: {
+			getByName: (vaultId: string) => ({
+				removeDevice: async (deviceId: string) => {
+					removed.push([vaultId, deviceId]);
+					return { ok: true, value: undefined };
+				},
+			}),
+		},
+	} as unknown as Env;
+	const account = new Account({ storage } as unknown as DurableObjectState, env);
+
+	return { storage, account, removed };
+}
 
 function socket(deviceId: string) {
 	let attachment: unknown = { deviceId, presence: null, updatedAt: 0 };
@@ -423,6 +475,66 @@ function socket(deviceId: string) {
 }
 
 describe("realtime synchronization", () => {
+	it("distinguishes malformed Yjs updates from updates with missing dependencies", async () => {
+		const s = setup();
+		await s.snapshot();
+		const op = create("a.md", "one");
+		await s.operation(op);
+		const doc = new Y.Doc();
+		doc.getText("content").insert(0, "base");
+		const vector = Y.encodeStateVector(doc);
+		doc.getText("content").insert(4, " edit");
+		const edit = (update: string): Operation => ({
+			type: "edit",
+			opId: crypto.randomUUID(),
+			fileId: op.fileId,
+			path: "a.md",
+			baseRevision: 1,
+			content: { kind: "text", update },
+		});
+
+		await expect(
+			s.operation(edit(fromUint8Array(Y.encodeStateAsUpdate(doc, vector)))),
+		).rejects.toMatchObject({ kind: "invalid-input", message: "Missing Yjs update dependencies" });
+		await expect(s.operation(edit("AQ=="))).rejects.toMatchObject({
+			kind: "invalid-input",
+			message: "Invalid Yjs update",
+		});
+	});
+
+	it("does not notify devices or flush for operations that change nothing", async () => {
+		const s = setup();
+		await s.snapshot();
+		const op = create("a.md", "one");
+		await s.operation(op);
+		await s.alarm();
+		const ws = socket(s.deviceId);
+		s.sockets.push(ws as unknown as WebSocket);
+
+		const rejected = await s.operation({
+			type: "move",
+			opId: crypto.randomUUID(),
+			fileId: op.fileId,
+			basePathRevision: 0,
+			path: "b.md",
+		});
+		const missing = await s.operation({
+			type: "delete",
+			opId: crypto.randomUUID(),
+			fileId: crypto.randomUUID(),
+			baseRevision: 1,
+		});
+
+		expect(rejected).toMatchObject({
+			conflict: true,
+			conflictReason: "move-rejected",
+			revision: 1,
+		});
+		expect(missing).toMatchObject({ conflict: false, revision: 1 });
+		expect(ws.send).not.toHaveBeenCalled();
+		expect(s.storage.alarm).toBeNull();
+	});
+
 	it("persists and acknowledges WS operations idempotently and broadcasts edit deltas", async () => {
 		const s = setup();
 		await s.snapshot();
@@ -470,6 +582,30 @@ describe("realtime synchronization", () => {
 		expect(s.objects.get(`vaults/${s.vaultId}/files/live.md`)).toBe("base live");
 	});
 
+	it("logs WS operations without paths or content", async () => {
+		const s = setup();
+		await s.snapshot();
+		const ws = socket(s.deviceId);
+		const op = create("private.md", "secret");
+		const logged = vi.spyOn(console, "info").mockImplementation(() => {});
+
+		await s.message(
+			ws as unknown as WebSocket,
+			JSON.stringify({ type: "operation", operation: op }),
+		);
+
+		expect(logged).toHaveBeenCalledExactlyOnceWith({
+			event: "sync.operation.completed",
+			vaultId: s.vaultId,
+			deviceId: s.deviceId,
+			operationId: op.opId,
+			operationType: "create",
+			revision: 1,
+			conflict: false,
+		});
+		logged.mockRestore();
+	});
+
 	it("retains the deleted CRDT base for an offline delta after deletion and restart", async () => {
 		const s = setup();
 		const op = create("deleted.md", "base");
@@ -499,7 +635,7 @@ describe("realtime synchronization", () => {
 		expect([...s.objects.values()]).toEqual(["base offline"]);
 	});
 
-	it("publishes authenticated presence, clears on exit, and rejects revoked connections", async () => {
+	it("publishes authenticated presence, clears on exit, and closes deleted device connections", async () => {
 		const s = setup();
 		await s.snapshot();
 		const ws = socket(s.deviceId);
@@ -525,11 +661,8 @@ describe("realtime synchronization", () => {
 			fileId: null,
 			cursor: null,
 		});
-		await s.revoke();
-		ws.send.mockClear();
-		await s.message(s.sockets[0]!, JSON.stringify(presence));
-		expect(ws.send).not.toHaveBeenCalled();
-		expect(ws.close).toHaveBeenCalledWith(1008, expect.any(String));
+		await s.removeDevice();
+		expect(ws.close).toHaveBeenCalledWith(4003, "Device deleted");
 	});
 
 	it("reports permanent operation rejection without dropping the connection", async () => {

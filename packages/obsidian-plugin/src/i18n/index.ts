@@ -1,4 +1,3 @@
-import { enErrors as enSyncErrors, jaErrors as jaSyncErrors } from "@cf-sync/sync-core/i18n/errors";
 import { setSyncLanguage } from "@cf-sync/sync-core/i18n/index";
 import { createInstance } from "i18next";
 
@@ -8,8 +7,8 @@ import type {} from "./i18next";
 import { enUI, jaUI } from "./ui";
 
 export const resources = {
-	en: { plugin: { ui: enUI, errors: { ...enSyncErrors, ...enErrors } } },
-	ja: { plugin: { ui: jaUI, errors: { ...jaSyncErrors, ...jaErrors } } },
+	en: { plugin: { ui: enUI, errors: enErrors } },
+	ja: { plugin: { ui: jaUI, errors: jaErrors } },
 } as const;
 
 const i18n = createInstance();

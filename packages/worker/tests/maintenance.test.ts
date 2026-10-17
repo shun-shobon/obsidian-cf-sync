@@ -110,7 +110,7 @@ it("collects only expired unreferenced blobs and returns the earliest future exp
 	expect(remove).toHaveBeenCalledExactlyOnceWith("staging/vault/expired");
 });
 
-it("keeps an idle socket open beyond fifteen minutes and closes it when its device is revoked", async () => {
+it("keeps an idle socket open beyond fifteen minutes and closes it when its device is deleted", async () => {
 	vi.useFakeTimers();
 
 	try {
@@ -134,11 +134,10 @@ it("keeps an idle socket open beyond fifteen minutes and closes it when its devi
 			JSON.stringify({ type: "r2", revision: 7 }),
 		);
 
-		await sockets.revoke(deviceId);
+		await sockets.removeDevice(deviceId);
 
 		expect(getWebSockets).toHaveBeenLastCalledWith(deviceId);
-		expect(socket.close).toHaveBeenCalledExactlyOnceWith(4003, "Device revoked");
-		await expect(sockets.assertDeviceActive(deviceId)).rejects.toMatchObject({ kind: "forbidden" });
+		expect(socket.close).toHaveBeenCalledExactlyOnceWith(4003, "Device deleted");
 	} finally {
 		vi.useRealTimers();
 	}

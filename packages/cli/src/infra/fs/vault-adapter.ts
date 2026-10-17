@@ -2,17 +2,13 @@ import { constants } from "node:fs";
 import { mkdir, open, readdir, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import type { VaultPort } from "@cf-sync/sync-core";
+import type { VaultPort } from "@cf-sync/sync-core/sync/ports/vault-port";
 
-import { hasErrorCode } from "./error-code";
+import { ifExists } from "./error-code";
 import { resolveVaultPath } from "./vault-path";
 
 export class FileVault implements VaultPort {
-	constructor(readonly root: string) {}
-
-	async safePath(path: string): Promise<string> {
-		return await resolveVaultPath(this.root, path);
-	}
+	constructor(private readonly root: string) {}
 
 	async list(): Promise<string[]> {
 		const paths = await listFiles(this.root, "");
@@ -20,6 +16,31 @@ export class FileVault implements VaultPort {
 		paths.sort();
 
 		return paths;
+	}
+
+	async exists(path: string): Promise<boolean> {
+		await this.safePath(path);
+
+		// lstat matches names case-insensitively on macOS and Windows, but Vault paths are case-sensitive.
+		const parts = path.split("/");
+		let directory = this.root;
+
+		for (const [index, part] of parts.entries()) {
+			const entries = await ifExists(readdir(directory, { withFileTypes: true }));
+			const entry = entries?.find((candidate) => candidate.name === part);
+
+			if (index === parts.length - 1) {
+				return entry?.isFile() === true;
+			}
+
+			if (entry?.isDirectory() !== true) {
+				return false;
+			}
+
+			directory = join(directory, part);
+		}
+
+		return false;
 	}
 
 	async read(path: string): Promise<Uint8Array> {
@@ -46,13 +67,7 @@ export class FileVault implements VaultPort {
 		expected: Uint8Array | undefined,
 		bytes: Uint8Array,
 	): Promise<boolean> {
-		const current = await this.read(path).catch((error: unknown) => {
-			if (hasErrorCode(error, "ENOENT")) {
-				return undefined;
-			}
-
-			throw error;
-		});
+		const current = await ifExists(this.read(path));
 
 		if (!matchesExpected(current, expected)) {
 			return false;
@@ -74,10 +89,10 @@ export class FileVault implements VaultPort {
 		await mkdir(dirname(target), { recursive: true });
 		await rename(source, target);
 	}
-}
 
-export async function assertSupportedFiles(root: string): Promise<void> {
-	await listFiles(root, "");
+	private async safePath(path: string): Promise<string> {
+		return await resolveVaultPath(this.root, path);
+	}
 }
 
 async function listFiles(directory: string, prefix: string): Promise<string[]> {

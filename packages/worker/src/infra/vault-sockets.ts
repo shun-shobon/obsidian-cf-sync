@@ -22,18 +22,17 @@ interface Connection {
 export class VaultSockets {
 	constructor(private readonly state: DurableObjectState) {}
 
-	async assertDeviceActive(deviceId: string): Promise<void> {
-		if (await this.isRevoked(deviceId)) {
-			throw new ApplicationError("forbidden", "Device revoked");
-		}
-	}
+	async removeDevice(deviceId: string): Promise<void> {
+		const tickets = await this.state.storage.list<Ticket>({ prefix: "ticket:" });
 
-	async revoke(deviceId: string): Promise<void> {
-		await this.state.storage.put(`revoked:${deviceId}`, true);
+		for (const [key, ticket] of tickets) {
+			if (ticket.deviceId === deviceId) {
+				await this.state.storage.delete(key);
+			}
+		}
 
 		for (const ws of this.state.getWebSockets(deviceId)) {
-			this.leave(ws);
-			ws.close(4003, "Device revoked");
+			this.disconnect(ws, 4003, "Device deleted");
 		}
 	}
 
@@ -67,14 +66,10 @@ export class VaultSockets {
 			throw new ApplicationError("unauthenticated", "Expired or consumed ticket");
 		}
 
-		if (await this.isRevoked(ticket.deviceId)) {
-			throw new ApplicationError("unauthenticated", "Expired or consumed ticket");
+		for (const existing of this.state.getWebSockets(ticket.deviceId)) {
+			this.disconnect(existing, 4000, "Connection replaced");
 		}
 
-		for (const existing of this.state.getWebSockets(ticket.deviceId)) {
-			this.leave(existing);
-			existing.close(4000, "Connection replaced");
-		}
 		const pair = new WebSocketPair();
 		this.state.acceptWebSocket(pair[1], [ticket.deviceId]);
 		pair[1].serializeAttachment({
@@ -97,12 +92,11 @@ export class VaultSockets {
 		return new Response(null, { status: 101, webSocket: pair[0] });
 	}
 
-	async authenticate(ws: WebSocket): Promise<string> {
+	authenticate(ws: WebSocket): string {
 		const connection = readConnection(ws);
 		if (!connection || ws.readyState !== WebSocket.OPEN) {
 			throw new ApplicationError("unauthenticated", "WebSocket is not authenticated");
 		}
-		await this.assertDeviceActive(connection.deviceId);
 		return connection.deviceId;
 	}
 
@@ -127,6 +121,11 @@ export class VaultSockets {
 		}
 		ws.serializeAttachment({ ...connection, presence: null });
 		this.broadcast({ ...connection.presence, fileId: null, cursor: null });
+	}
+
+	disconnect(ws: WebSocket, code: number, reason: string): void {
+		this.leave(ws);
+		ws.close(code, reason);
 	}
 
 	broadcast(message: ServerMessage): void {
@@ -160,12 +159,6 @@ export class VaultSockets {
 		const tickets = await storage.list<Ticket>({ prefix: "ticket:" });
 
 		return [...tickets.values()].map((ticket) => ticket.expiresAt);
-	}
-
-	private async isRevoked(deviceId: string): Promise<boolean> {
-		const revoked = await this.state.storage.get<boolean>(`revoked:${deviceId}`);
-
-		return revoked === true;
 	}
 
 	private async ticketKey(secret: string): Promise<string> {

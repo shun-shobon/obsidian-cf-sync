@@ -130,9 +130,9 @@ export class ReconcileVault {
 
 	private async removeDeleted(local: LocalFile, paths: Set<string>): Promise<void> {
 		if (paths.has(local.path)) {
-			const diskBytes = await this.vault.read(local.path);
-			const diskDigest = await digest(diskBytes);
-			if (diskDigest !== local.digest) {
+			// An editor's unsaved text is already in the document, so a lagging disk is not a local change.
+			const inEditor = local.kind === "text" && this.documents.isRetained(local.id);
+			if (!inEditor && (await this.hasDiskChange(local))) {
 				await this.changes.capture(local.path);
 
 				return;
@@ -144,5 +144,11 @@ export class ReconcileVault {
 		this.state.data.files = this.state.data.files.filter((file) => file.id !== local.id);
 		this.documents.remove(local.id);
 		await this.state.store.delete(documentKey(local.id));
+	}
+
+	private async hasDiskChange(local: LocalFile): Promise<boolean> {
+		const bytes = await this.vault.read(local.path);
+
+		return (await digest(bytes)) !== local.digest;
 	}
 }

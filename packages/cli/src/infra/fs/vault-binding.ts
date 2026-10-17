@@ -3,20 +3,20 @@ import { join } from "node:path";
 
 import * as v from "valibot";
 
-import { bindingSchema } from "../../domain/connection";
-import type { Binding } from "../../domain/connection";
-import { hasErrorCode } from "./error-code";
-import { validateMetadataFiles } from "./metadata-files";
+import { bindingSchema } from "../../domain/binding";
+import type { Binding } from "../../domain/binding";
+import { hasErrorCode, ifExists } from "./error-code";
 
 export const metadataName = ".cf-sync";
 
-async function validateDirectory(directory: string): Promise<void> {
-	const stat = await lstat(directory);
-
-	if (!stat.isDirectory() || stat.isSymbolicLink()) {
-		throw new Error("Vault metadata must be a real directory");
-	}
-}
+const metadataFiles = [
+	"vault.json",
+	"state.sqlite",
+	"state.sqlite-wal",
+	"state.sqlite-shm",
+	"lock.sqlite",
+	"lock.sqlite-journal",
+];
 
 export async function ensureMetadataDirectory(root: string): Promise<string> {
 	const directory = join(root, metadataName);
@@ -32,27 +32,23 @@ export async function ensureMetadataDirectory(root: string): Promise<string> {
 }
 
 export async function validateMetadata(metadata: string): Promise<void> {
-	await validateDirectory(metadata);
-	await validateMetadataFiles(metadata, [
-		"vault.json",
-		"state.sqlite",
-		"state.sqlite-wal",
-		"state.sqlite-shm",
-		"lock.sqlite",
-		"lock.sqlite-journal",
-		"lock.sqlite-wal",
-		"lock.sqlite-shm",
-	]);
+	const stat = await lstat(metadata);
+
+	if (!stat.isDirectory()) {
+		throw new Error("Vault metadata must be a real directory");
+	}
+
+	for (const name of metadataFiles) {
+		const file = await ifExists(lstat(join(metadata, name)));
+
+		if (file && !file.isFile()) {
+			throw new Error(`Invalid metadata file: ${name}`);
+		}
+	}
 }
 
 export async function assertUninitialized(metadata: string): Promise<void> {
-	const existing = await lstat(join(metadata, "vault.json")).catch((error: unknown) => {
-		if (hasErrorCode(error, "ENOENT")) {
-			return undefined;
-		}
-
-		throw error;
-	});
+	const existing = await ifExists(lstat(join(metadata, "vault.json")));
 
 	if (existing) {
 		throw new Error("This directory is already initialized");

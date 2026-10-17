@@ -49,7 +49,17 @@ export class AccountApi {
 		return v.parse(deviceSchema, response);
 	}
 
-	async revokeDevice(id: string) {
+	async renameDevice(id: string, name: string) {
+		const body = JSON.stringify({ name });
+		const response = await this.http.json(`/api/devices/${encodeURIComponent(id)}`, {
+			method: "PATCH",
+			body,
+		});
+
+		return v.parse(deviceSchema, response);
+	}
+
+	async deleteDevice(id: string) {
 		await this.http.json(`/api/devices/${encodeURIComponent(id)}`, { method: "DELETE" });
 	}
 }

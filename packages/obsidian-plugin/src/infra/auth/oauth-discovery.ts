@@ -8,7 +8,6 @@ import {
 import * as v from "valibot";
 
 import { httpsUrlSchema, metadataSchema } from "../../domain/auth-state";
-import { AuthenticationError } from "../../domain/authentication-error";
 import { t } from "../../i18n";
 import type { HttpRequest, Transport } from "../http/transport";
 
@@ -25,19 +24,17 @@ async function requestResponse(transport: Transport, request: HttpRequest): Prom
 
 function resourceMetadataUrl(response: Response): string {
 	if (response.status !== 401) {
-		throw new AuthenticationError(
-			t(($) => $.errors.expectedUnauthorized, { status: response.status }),
-		);
+		throw new Error(t(($) => $.errors.expectedUnauthorized, { status: response.status }));
 	}
 
 	const header = response.headers.get("www-authenticate");
 	if (header == null || header === "") {
-		throw new AuthenticationError(t(($) => $.errors.missingChallenge));
+		throw new Error(t(($) => $.errors.missingChallenge));
 	}
 
 	const challenge = parse(header);
 	if (challenge.scheme.toLowerCase() !== "bearer" || challenge.token != null) {
-		throw new AuthenticationError(t(($) => $.errors.missingBearerMetadata));
+		throw new Error(t(($) => $.errors.missingBearerMetadata));
 	}
 
 	const parameter = Object.entries(challenge.params).find(

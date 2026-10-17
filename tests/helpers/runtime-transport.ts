@@ -1,15 +1,9 @@
-import type {
-	BlobRef,
-	DocumentResponse,
-	OperationResult,
-	ServerMessage,
-	Snapshot,
-} from "@cf-sync/protocol";
+import type { BlobRef, OperationResult, ServerMessage, Snapshot } from "@cf-sync/protocol";
 import { ConnectionError } from "@cf-sync/sync-core/domain/connection-error";
 import type { ApiPort } from "@cf-sync/sync-core/sync/ports/api-port";
 import type { Miniflare } from "miniflare";
 
-import { requestAsDevice, vaultId } from "./runtime-api";
+import { document, requestAsDevice, uploadAsDevice, vaultId } from "./runtime-api";
 
 export function createRuntimeApi(mf: Miniflare, deviceId: string): ApiPort {
 	const request = (path: string, body?: unknown) => requestAsDevice(mf, deviceId, path, body);
@@ -21,11 +15,7 @@ export function createRuntimeApi(mf: Miniflare, deviceId: string): ApiPort {
 			return (await response.json()) as Snapshot;
 		},
 
-		async document(id) {
-			const response = await request(`/files/${id}`);
-
-			return (await response.json()) as DocumentResponse;
-		},
+		document: (id) => document(mf, id, deviceId),
 
 		async operate(op) {
 			const response = await request("/operations", op);
@@ -34,16 +24,7 @@ export function createRuntimeApi(mf: Miniflare, deviceId: string): ApiPort {
 		},
 
 		async upload(key, bytes, hash) {
-			const result = await mf.dispatchFetch(`https://test/blobs/${key}`, {
-				method: "PUT",
-				headers: {
-					"X-Vault-Id": vaultId,
-					"X-Device-Id": deviceId,
-					"X-Content-Digest": hash,
-					"X-Content-Size": String(bytes.length),
-				},
-				body: bytes,
-			});
+			const result = await uploadAsDevice(mf, deviceId, key, bytes, hash);
 			if (!result.ok) {
 				throw new Error(await result.text());
 			}

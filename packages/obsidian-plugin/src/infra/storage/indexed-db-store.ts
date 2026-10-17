@@ -65,7 +65,6 @@ async function openDatabase(name: string): Promise<IDBDatabase> {
 		});
 		request.addEventListener("success", () => resolve(request.result));
 		request.addEventListener("error", () => reject(storageFailed(request.error)));
-		request.addEventListener("blocked", () => reject(new Error(t(($) => $.errors.databaseBusy))));
 	});
 }
 
@@ -197,6 +196,7 @@ export class IndexedDbStore implements SyncStore {
 	}
 
 	close(): void {
-		void this.database.then((db) => db.close());
+		// An open failure has already been reported to the operation that awaited it.
+		this.database.then((db) => db.close()).catch(() => {});
 	}
 }

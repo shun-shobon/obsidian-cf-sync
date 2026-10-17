@@ -1,4 +1,5 @@
-import type { LocalState, StoredData, SyncStore } from "../../src";
+import type { LocalState } from "../../src/sync/domain/sync-state";
+import type { StoredData, SyncStore } from "../../src/sync/ports/sync-store";
 
 export class Store implements SyncStore {
 	state: LocalState | undefined;

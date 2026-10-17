@@ -5,7 +5,7 @@ import type { FileManager, Vault } from "obsidian";
 
 import { t } from "../../i18n";
 import { OwnFileEvents } from "./own-file-events";
-import type { ExpectedEvent, FileEvent } from "./own-file-events";
+import type { ContentEvent, FileEvent } from "./own-file-events";
 
 export class ObsidianVault implements VaultPort {
 	private readonly events: OwnFileEvents;
@@ -23,6 +23,10 @@ export class ObsidianVault implements VaultPort {
 
 	list() {
 		return Promise.resolve(this.vault.getFiles().map((file) => file.path));
+	}
+
+	exists(path: string) {
+		return Promise.resolve(this.vault.getAbstractFileByPath(path) instanceof TFile);
 	}
 
 	async read(path: string) {
@@ -50,26 +54,29 @@ export class ObsidianVault implements VaultPort {
 		}
 	}
 
-	async write(path: string, bytes: Uint8Array) {
+	private async create(path: string, bytes: Uint8Array) {
 		await this.parents(path);
+		await this.events.expectContent({ type: "create", path, digest: await digest(bytes) }, () =>
+			this.vault.createBinary(path, new Uint8Array(bytes).buffer),
+		);
+	}
+
+	async write(path: string, bytes: Uint8Array) {
 		const existing = this.vault.getAbstractFileByPath(path);
 
-		if (existing && !(existing instanceof TFile)) {
+		if (!existing) {
+			await this.create(path, bytes);
+
+			return;
+		}
+
+		if (!(existing instanceof TFile)) {
 			throw new Error(t(($) => $.errors.folderCollision, { path: path }));
 		}
 
-		const buffer = new Uint8Array(bytes).buffer;
-		const hash = await digest(bytes);
-
-		if (existing) {
-			await this.events.run({ type: "modify", path, digest: hash }, () =>
-				this.vault.modifyBinary(existing, buffer),
-			);
-		} else {
-			await this.events.run({ type: "create", path, digest: hash }, () =>
-				this.vault.createBinary(path, buffer),
-			);
-		}
+		await this.events.expectContent({ type: "modify", path, digest: await digest(bytes) }, () =>
+			this.vault.modifyBinary(existing, new Uint8Array(bytes).buffer),
+		);
 	}
 
 	async writeIfUnchanged(
@@ -84,10 +91,7 @@ export class ObsidianVault implements VaultPort {
 				return false;
 			}
 
-			await this.parents(path);
-			await this.events.run({ type: "create", path, digest: await digest(bytes) }, () =>
-				this.vault.createBinary(path, new Uint8Array(bytes).buffer),
-			);
+			await this.create(path, bytes);
 
 			return true;
 		}
@@ -96,7 +100,7 @@ export class ObsidianVault implements VaultPort {
 			return false;
 		}
 
-		const event: ExpectedEvent = { type: "modify", path, digest: await digest(bytes) };
+		const event: ContentEvent = { type: "modify", path, digest: await digest(bytes) };
 
 		if (fileKind(path) === "text") {
 			return await this.writeTextIfUnchanged(file, event, expected, bytes);
@@ -107,7 +111,7 @@ export class ObsidianVault implements VaultPort {
 
 	private async writeTextIfUnchanged(
 		file: TFile,
-		event: ExpectedEvent,
+		event: ContentEvent,
 		expected: Uint8Array,
 		bytes: Uint8Array,
 	): Promise<boolean> {
@@ -116,7 +120,7 @@ export class ObsidianVault implements VaultPort {
 		const after = decoder.decode(bytes);
 		// A mutable field: TypeScript would narrow a `let` to `false` across the callback.
 		const result = { changed: false };
-		await this.events.run(event, () =>
+		await this.events.expectContent(event, () =>
 			this.vault.process(file, (current) => {
 				if (current !== before) {
 					return current;
@@ -129,7 +133,7 @@ export class ObsidianVault implements VaultPort {
 		);
 
 		if (!result.changed) {
-			this.events.discard(event);
+			this.events.discardContent(event);
 		}
 
 		return result.changed;
@@ -137,7 +141,7 @@ export class ObsidianVault implements VaultPort {
 
 	private async writeBinaryIfUnchanged(
 		file: TFile,
-		event: ExpectedEvent,
+		event: ContentEvent,
 		expected: Uint8Array,
 		bytes: Uint8Array,
 	): Promise<boolean> {
@@ -155,7 +159,9 @@ export class ObsidianVault implements VaultPort {
 			return false;
 		}
 
-		await this.events.run(event, () => this.vault.modifyBinary(file, new Uint8Array(bytes).buffer));
+		await this.events.expectContent(event, () =>
+			this.vault.modifyBinary(file, new Uint8Array(bytes).buffer),
+		);
 
 		return true;
 	}
@@ -171,7 +177,9 @@ export class ObsidianVault implements VaultPort {
 			throw new Error(t(($) => $.errors.notFile, { path: path }));
 		}
 
-		await this.events.run({ type: "delete", file, path }, () => this.fileManager.trashFile(file));
+		await this.events.expectFileOperation({ type: "delete", file, path }, () =>
+			this.fileManager.trashFile(file),
+		);
 	}
 
 	async rename(oldPath: string, newPath: string) {
@@ -182,7 +190,7 @@ export class ObsidianVault implements VaultPort {
 		}
 
 		await this.parents(newPath);
-		await this.events.run({ type: "rename", file, oldPath, path: newPath }, () =>
+		await this.events.expectFileOperation({ type: "rename", file, oldPath, path: newPath }, () =>
 			this.vault.rename(file, newPath),
 		);
 	}

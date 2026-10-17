@@ -10,10 +10,16 @@ import type { Documents } from "../service/documents";
 import { rebasePending } from "../service/pending-operations";
 import type { SyncState } from "../service/sync-state";
 
+type Lane = "text" | "other";
+
+interface Claimed {
+	operation: Operation;
+	local: LocalFile | undefined;
+}
+
 export class SendPending {
 	private readonly inFlight = new Set<string>();
-	private textRun: Promise<void> | undefined;
-	private otherRun: Promise<void> | undefined;
+	private readonly lanes = new Map<Lane, Promise<void>>();
 
 	constructor(
 		private readonly state: SyncState,
@@ -27,7 +33,10 @@ export class SendPending {
 	async run(isActive: () => boolean): Promise<void> {
 		while (isActive()) {
 			const before = this.state.data.pending.map((op) => op.opId).join(",");
-			const results = await Promise.allSettled([this.runText(isActive), this.runOther(isActive)]);
+			const results = await Promise.allSettled([
+				this.runLane("text", isActive),
+				this.runLane("other", isActive),
+			]);
 			for (const result of results) {
 				if (result.status === "rejected") {
 					throw result.reason;
@@ -40,74 +49,93 @@ export class SendPending {
 		}
 	}
 
-	private runText(isActive: () => boolean): Promise<void> {
-		this.textRun ??= this.runLane(true, isActive).finally(() => {
-			this.textRun = undefined;
-		});
-		return this.textRun;
+	private runLane(lane: Lane, isActive: () => boolean): Promise<void> {
+		let running = this.lanes.get(lane);
+		if (!running) {
+			running = this.drainLane(lane, isActive).finally(() => {
+				this.lanes.delete(lane);
+			});
+			this.lanes.set(lane, running);
+		}
+
+		return running;
 	}
 
-	private runOther(isActive: () => boolean): Promise<void> {
-		this.otherRun ??= this.runLane(false, isActive).finally(() => {
-			this.otherRun = undefined;
-		});
-		return this.otherRun;
-	}
-
-	private async runLane(text: boolean, isActive: () => boolean): Promise<void> {
+	private async drainLane(lane: Lane, isActive: () => boolean): Promise<void> {
 		while (isActive()) {
-			const next = await this.serialize(async () => {
+			const claimed = await this.serialize(async () => {
 				if (!isActive()) {
 					return undefined;
 				}
-				const seen = new Set<string>();
-				for (const operation of this.state.data.pending) {
-					if (seen.has(operation.fileId)) {
-						continue;
-					}
-					seen.add(operation.fileId);
-					const isText = "content" in operation && operation.content.kind === "text";
-					if (isText !== text || this.inFlight.has(operation.fileId)) {
-						continue;
-					}
-					const local = this.state.data.files.find((file) => file.id === operation.fileId);
-					if (local && isExcluded(local.path, this.state.data.exclusions)) {
-						continue;
-					}
-					await this.markAttempted(operation);
-					this.inFlight.add(operation.fileId);
-					return { operation: structuredClone(operation), local };
-				}
-				return undefined;
+
+				return await this.claimNext(lane);
 			});
-			if (!next) {
+			if (!claimed) {
 				return;
 			}
-			const { operation, local } = next;
+
 			try {
-				// Network and attachment transfers never hold the local state queue.
-				await this.uploadContent(operation);
-				if (!isActive()) {
-					return;
-				}
-				const result = await this.operate(operation);
-				if (!isActive()) {
-					return;
-				}
-				await this.serialize(async () => {
-					if (!isActive()) {
-						return;
-					}
-					await this.acknowledge(operation, result, local);
-					this.onAcknowledged(operation, result);
-					if ("content" in operation && operation.content.kind === "blob") {
-						await this.state.store.delete(blobKey(operation.content.blob.key));
-					}
-				});
+				await this.send(claimed, isActive);
 			} finally {
-				this.inFlight.delete(operation.fileId);
+				this.inFlight.delete(claimed.operation.fileId);
 			}
 		}
+	}
+
+	private async claimNext(lane: Lane): Promise<Claimed | undefined> {
+		const next = this.selectNext(lane);
+		if (!next) {
+			return undefined;
+		}
+
+		await this.markAttempted(next.operation);
+		this.inFlight.add(next.operation.fileId);
+
+		return { operation: structuredClone(next.operation), local: next.local };
+	}
+
+	/** Only the oldest operation of each file is eligible, so a file's operations stay in order. */
+	private selectNext(lane: Lane): Claimed | undefined {
+		const seen = new Set<string>();
+		for (const operation of this.state.data.pending) {
+			if (seen.has(operation.fileId)) {
+				continue;
+			}
+			seen.add(operation.fileId);
+			if (laneOf(operation) !== lane || this.inFlight.has(operation.fileId)) {
+				continue;
+			}
+			const local = this.state.data.files.find((file) => file.id === operation.fileId);
+			if (local && isExcluded(local.path, this.state.data.exclusions)) {
+				continue;
+			}
+
+			return { operation, local };
+		}
+
+		return undefined;
+	}
+
+	private async send({ operation, local }: Claimed, isActive: () => boolean): Promise<void> {
+		// Network and attachment transfers never hold the local state queue.
+		await this.uploadContent(operation);
+		if (!isActive()) {
+			return;
+		}
+		const result = await this.operate(operation);
+		if (!isActive()) {
+			return;
+		}
+		await this.serialize(async () => {
+			if (!isActive()) {
+				return;
+			}
+			await this.acknowledge(operation, result, local);
+			this.onAcknowledged(operation, result);
+			if ("content" in operation && operation.content.kind === "blob") {
+				await this.state.store.delete(blobKey(operation.content.blob.key));
+			}
+		});
 	}
 
 	private async uploadContent(operation: Operation): Promise<void> {
@@ -154,7 +182,7 @@ export class SendPending {
 			savedData = await this.updateBaseline(local, operation, result, file);
 		}
 
-		await this.state.store.save(state, savedData);
+		await this.state.persist(savedData);
 	}
 
 	private async updateBaseline(
@@ -196,4 +224,12 @@ function conflictMessage(result: OperationResult): string {
 	};
 
 	return reasons[result.conflictReason];
+}
+
+function laneOf(operation: Operation): Lane {
+	if ("content" in operation && operation.content.kind === "text") {
+		return "text";
+	}
+
+	return "other";
 }

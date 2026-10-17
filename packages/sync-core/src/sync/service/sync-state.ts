@@ -71,8 +71,8 @@ export class SyncState {
 		this.emit("synced");
 	}
 
-	persist(): Promise<void> {
-		return this.store.save(this.data);
+	persist(data?: StoredData): Promise<void> {
+		return this.store.save(this.data, data);
 	}
 
 	async clearIncoming(data?: StoredData): Promise<void> {

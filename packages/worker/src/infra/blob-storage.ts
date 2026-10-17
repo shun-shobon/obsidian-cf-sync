@@ -11,6 +11,8 @@ const contentSizeSchema = v.pipe(
 	v.minValue(0),
 );
 
+const UNREFERENCED_BLOB_TTL_MS = 24 * 60 * 60 * 1000;
+
 // R2 bindings expose API error codes only as a message suffix: BadDigest and IncompleteBody.
 const R2_CONTENT_ERRORS = [10037, 10013];
 
@@ -76,15 +78,19 @@ export class BlobStorage {
 
 	async collectUnreferenced(referenced: Set<string>): Promise<number | null> {
 		const prefix = `staging/${this.vaultId}/`;
-		let listing = await this.bucket.list({ prefix });
-		let nextExpiry = await this.deleteExpired(listing.objects, referenced, null);
+		let options: R2ListOptions = { prefix };
+		let nextExpiry: number | null = null;
 
-		while (listing.truncated) {
-			listing = await this.bucket.list({ prefix, cursor: listing.cursor });
+		for (;;) {
+			const listing = await this.bucket.list(options);
 			nextExpiry = await this.deleteExpired(listing.objects, referenced, nextExpiry);
-		}
 
-		return nextExpiry;
+			if (!listing.truncated) {
+				return nextExpiry;
+			}
+
+			options = { prefix, cursor: listing.cursor };
+		}
 	}
 
 	private async deleteExpired(
@@ -96,12 +102,12 @@ export class BlobStorage {
 
 		for (const object of objects) {
 			const key = object.key.slice(object.key.lastIndexOf("/") + 1);
-			const isReferenced = referenced.has(key);
-			if (isReferenced) {
+
+			if (referenced.has(key)) {
 				continue;
 			}
 
-			const expiresAt = object.uploaded.getTime() + 86_400_000;
+			const expiresAt = object.uploaded.getTime() + UNREFERENCED_BLOB_TTL_MS;
 
 			if (expiresAt <= Date.now()) {
 				await this.bucket.delete(object.key);

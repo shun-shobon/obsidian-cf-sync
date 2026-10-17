@@ -1,12 +1,11 @@
-import "./helpers/browser-window";
 import "fake-indexeddb/auto";
 import { digest } from "@cf-sync/protocol";
 import { SyncEngine } from "@cf-sync/sync-core/sync/usecase/sync-engine";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { Server } from "../../sync-core/tests/helpers/sync-server";
+import { Vault } from "../../sync-core/tests/helpers/sync-vault";
 import { IndexedDbStore } from "../src/infra/storage/indexed-db-store";
-import { Server } from "./helpers/sync-server";
-import { Vault } from "./helpers/sync-vault";
 
 const encode = (value: string) => new TextEncoder().encode(value);
 const engines: SyncEngine[] = [];
@@ -47,18 +46,18 @@ describe("persistent synchronization", () => {
 		await second.engine.start();
 		first.engine.pause();
 		second.engine.pause();
-		const docA = await first.engine.ensureDoc("note.md");
-		const docB = await second.engine.ensureDoc("note.md");
+		const docA = await first.engine.ensureDoc("note.md", () => true);
+		const docB = await second.engine.ensureDoc("note.md", () => true);
 		docA!.getText("content").insert(0, "A");
 		docB!.getText("content").insert(5, "B");
-		await first.engine.ensureDoc("note.md");
-		await second.engine.ensureDoc("note.md");
+		await first.engine.ensureDoc("note.md", () => true);
+		await second.engine.ensureDoc("note.md", () => true);
 		await first.engine.resume();
 		await second.engine.resume();
 		await first.engine.syncNow();
 
-		expect(a.text("note.md")).toBe("AhelloB");
-		expect(b.text("note.md")).toBe("AhelloB");
+		expect(docA!.getText("content").toString()).toBe("AhelloB");
+		expect(docB!.getText("content").toString()).toBe("AhelloB");
 	});
 
 	it("retries the durable operation ID after a lost acknowledgement and restart", async () => {
@@ -99,7 +98,9 @@ describe("persistent synchronization", () => {
 
 		expect(server.docs.size).toBe(1);
 		expect(b.text("same.md")).toBe("same");
-		expect((await second.engine.ensureDoc("same.md"))!.getText("content").toString()).toBe("same");
+		expect(
+			(await second.engine.ensureDoc("same.md", () => true))!.getText("content").toString(),
+		).toBe("same");
 	});
 
 	it("persists edits while paused and preserves them over process restart", async () => {
@@ -145,7 +146,7 @@ describe("persistent synchronization", () => {
 		expect((await next.store.load())!.pending).toHaveLength(0);
 	});
 
-	it("recovers a durable editor update when the disk write was interrupted", async () => {
+	it("recovers a durable editor update that the editor never saved to disk", async () => {
 		const server = new Server();
 		const vault = new Vault();
 		const name = crypto.randomUUID();
@@ -154,20 +155,15 @@ describe("persistent synchronization", () => {
 		const first = client(server, vault, name);
 		await first.engine.start();
 		first.engine.pause();
-		const originalWrite = vault.write.bind(vault);
-		vault.write = async () => {
-			throw new Error("interrupted disk write");
-		};
-		const doc = await first.engine.ensureDoc("note.md");
+		const doc = await first.engine.ensureDoc("note.md", () => true);
 		doc!.getText("content").insert(4, " saved");
-		await first.engine.ensureDoc("note.md");
+		await first.engine.ensureDoc("note.md", () => true);
 
 		expect((await first.store.load())!.pending).toHaveLength(1);
 		expect(vault.text("note.md")).toBe("base");
 
 		await first.engine.dispose();
 		engines.splice(engines.indexOf(first.engine), 1);
-		vault.write = originalWrite;
 		const next = client(server, vault, name);
 		await next.engine.start();
 
@@ -235,8 +231,8 @@ describe("persistent synchronization", () => {
 		const { engine } = client(server, vault);
 		await engine.start();
 
-		const first = (await engine.ensureDoc("note.md"))!;
-		const second = (await engine.ensureDoc("note.md"))!;
+		const first = (await engine.ensureDoc("note.md", () => true))!;
+		const second = (await engine.ensureDoc("note.md", () => true))!;
 
 		expect(first).toBe(second);
 
@@ -250,7 +246,7 @@ describe("persistent synchronization", () => {
 
 		expect(engine.getDoc("note.md")).toBeUndefined();
 
-		const restored = (await engine.ensureDoc("note.md"))!;
+		const restored = (await engine.ensureDoc("note.md", () => true))!;
 
 		expect(restored.getText("content").toString()).toBe("text");
 	});

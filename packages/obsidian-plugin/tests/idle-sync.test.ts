@@ -1,15 +1,14 @@
-import "./helpers/browser-window";
 import "fake-indexeddb/auto";
 import type { ServerMessage } from "@cf-sync/protocol";
 import { ConnectionError } from "@cf-sync/sync-core/domain/connection-error";
 import { DocumentNotFoundError } from "@cf-sync/sync-core/domain/document-not-found-error";
+import type { SyncStatus } from "@cf-sync/sync-core/sync/domain/sync-state";
 import { SyncEngine } from "@cf-sync/sync-core/sync/usecase/sync-engine";
 import { afterEach, expect, it, vi } from "vitest";
 
-import { AuthenticationError } from "../src/domain/authentication-error";
+import { Server } from "../../sync-core/tests/helpers/sync-server";
+import { Vault } from "../../sync-core/tests/helpers/sync-vault";
 import { IndexedDbStore } from "../src/infra/storage/indexed-db-store";
-import { Server } from "./helpers/sync-server";
-import { Vault } from "./helpers/sync-vault";
 
 const engines: SyncEngine[] = [];
 
@@ -40,24 +39,25 @@ function setup() {
 	const readSnapshot = server.api.snapshot.bind(server.api);
 	const snapshot = vi.spyOn(server.api, "snapshot").mockImplementation(readSnapshot);
 	const store = new IndexedDbStore(crypto.randomUUID());
+	const statuses: SyncStatus["phase"][] = [];
 	const engine = new SyncEngine({
 		deviceId: crypto.randomUUID(),
 		deviceName: "Test device",
 		vault,
 		api: server.api,
 		store,
-		onStatus() {},
+		onStatus: (status) => statuses.push(status.phase),
 		onConflict() {},
 		confirmInitial: async () => true,
 	});
 	engines.push(engine);
-	return { engine, server, vault, sockets, connect, snapshot, store };
+	return { engine, server, vault, sockets, connect, snapshot, store, statuses };
 }
 
 // The serial queue is also used by editor loading, so awaiting it observes queued work
 // without initiating synchronization or adding a timer.
 async function settled(engine: SyncEngine) {
-	await engine.ensureDoc("missing.md");
+	await engine.ensureDoc("missing.md", () => true);
 }
 
 it("keeps an idle connection for an hour without network requests", async () => {
@@ -142,7 +142,7 @@ it("stops retrying when the server rejects the WebSocket", async () => {
 
 it("stops retrying when authentication is rejected", async () => {
 	const { engine, snapshot, connect } = setup();
-	snapshot.mockRejectedValue(new AuthenticationError("revoked"));
+	snapshot.mockRejectedValue(new Error("revoked"));
 	await engine.start();
 	await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
 	expect(connect).toHaveBeenCalledTimes(1);
@@ -227,4 +227,25 @@ it("reconciles again when a file is deleted after taking a snapshot", async () =
 	await settled(engine);
 	await vi.waitFor(async () => expect(await vault.list()).toEqual([]));
 	expect(vi.getTimerCount()).toBe(0);
+});
+
+it("sends a file renamed from an untracked path", async () => {
+	const { engine, server, vault } = setup();
+	await engine.start();
+	await vault.write("renamed.md", new TextEncoder().encode("moved in"));
+	await engine.captureRename("excluded/draft.md", "renamed.md");
+	await vi.advanceTimersByTimeAsync(50);
+	await vi.waitFor(() =>
+		expect([...server.docs.values()].map((entry) => entry.file.path)).toEqual(["renamed.md"]),
+	);
+});
+
+it("reports a failed capture to its caller without changing the sync status", async () => {
+	const { engine, vault, statuses } = setup();
+	await engine.start();
+	statuses.length = 0;
+	await vault.write("note.md", new TextEncoder().encode("local"));
+	vi.spyOn(vault, "read").mockRejectedValueOnce(new Error("read failed"));
+	await expect(engine.capture("note.md")).rejects.toThrow("read failed");
+	expect(statuses).not.toContain("error");
 });

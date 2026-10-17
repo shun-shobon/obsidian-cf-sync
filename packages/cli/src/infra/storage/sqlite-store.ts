@@ -1,29 +1,23 @@
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
-import type { LocalState, StoredData, SyncStore } from "@cf-sync/sync-core";
+import type { LocalState } from "@cf-sync/sync-core/sync/domain/sync-state";
+import type { StoredData, SyncStore } from "@cf-sync/sync-core/sync/ports/sync-store";
+
+const SIDECAR_SUFFIXES = ["-wal", "-shm"];
 
 export class SqliteStore implements SyncStore {
 	private readonly db: DatabaseSync;
+	private readonly createdSidecars: string[] = [];
 
 	constructor(path: string, dryRun = false) {
-		if (dryRun && existsSync(path)) {
-			this.db = new DatabaseSync(path, { readOnly: true });
-			return;
-		}
-
-		let databasePath = path;
-
 		if (dryRun) {
-			databasePath = ":memory:";
+			this.createdSidecars = SIDECAR_SUFFIXES.map((suffix) => path + suffix).filter(
+				(sidecar) => !existsSync(sidecar),
+			);
 		}
 
-		this.db = new DatabaseSync(databasePath);
-		this.db.exec(`
-      PRAGMA journal_mode = WAL;
-      CREATE TABLE IF NOT EXISTS data (key TEXT PRIMARY KEY, value BLOB NOT NULL);
-      CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY CHECK(id = 1), value TEXT NOT NULL);
-    `);
+		this.db = openDatabase(path, dryRun);
 	}
 
 	load(): Promise<LocalState | undefined> {
@@ -78,5 +72,35 @@ export class SqliteStore implements SyncStore {
 
 	close(): void {
 		this.db.close();
+
+		// A read-only connection keeps the WAL index files, and a dry run must not leave them behind.
+		for (const sidecar of this.createdSidecars) {
+			rmSync(sidecar, { force: true });
+		}
 	}
+}
+
+function openDatabase(path: string, dryRun: boolean): DatabaseSync {
+	if (!dryRun) {
+		return createDatabase(path);
+	}
+
+	if (existsSync(path)) {
+		return new DatabaseSync(path, { readOnly: true });
+	}
+
+	// A dry run before the first sync must not leave state.sqlite behind.
+	return createDatabase(":memory:");
+}
+
+function createDatabase(path: string): DatabaseSync {
+	const db = new DatabaseSync(path);
+
+	db.exec(`
+    PRAGMA journal_mode = WAL;
+    CREATE TABLE IF NOT EXISTS data (key TEXT PRIMARY KEY, value BLOB NOT NULL);
+    CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY CHECK(id = 1), value TEXT NOT NULL);
+  `);
+
+	return db;
 }
