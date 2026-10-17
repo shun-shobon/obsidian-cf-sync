@@ -65,7 +65,6 @@ async function openDatabase(name: string): Promise<IDBDatabase> {
 		});
 		request.addEventListener("success", () => resolve(request.result));
 		request.addEventListener("error", () => reject(storageFailed(request.error)));
-		request.addEventListener("blocked", () => reject(new Error(t(($) => $.errors.databaseBusy))));
 	});
 }
 

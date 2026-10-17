@@ -6,7 +6,6 @@ import type { SyncStatus } from "@cf-sync/sync-core/sync/domain/sync-state";
 import { SyncEngine } from "@cf-sync/sync-core/sync/usecase/sync-engine";
 import { afterEach, expect, it, vi } from "vitest";
 
-import { AuthenticationError } from "../src/domain/authentication-error";
 import { IndexedDbStore } from "../src/infra/storage/indexed-db-store";
 import { Server } from "./helpers/sync-server";
 import { Vault } from "./helpers/sync-vault";
@@ -143,7 +142,7 @@ it("stops retrying when the server rejects the WebSocket", async () => {
 
 it("stops retrying when authentication is rejected", async () => {
 	const { engine, snapshot, connect } = setup();
-	snapshot.mockRejectedValue(new AuthenticationError("revoked"));
+	snapshot.mockRejectedValue(new Error("revoked"));
 	await engine.start();
 	await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
 	expect(connect).toHaveBeenCalledTimes(1);

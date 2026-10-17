@@ -1,12 +1,25 @@
 import { ConnectionError } from "@cf-sync/sync-core/domain/connection-error";
+import {
+	calculatePKCECodeChallenge,
+	generateRandomCodeVerifier,
+	generateRandomState,
+} from "oauth4webapi";
 import * as v from "valibot";
 
 import type { AuthState } from "../../domain/auth-state";
-import { AuthenticationError } from "../../domain/authentication-error";
 import { t } from "../../i18n";
 import type { Transport } from "../http/transport";
-import { registerClient, tokenResponseSchema } from "./oauth-provider";
-import { challenge, random } from "./pkce";
+import { registerClient } from "./oauth-provider";
+
+export const tokenResponseSchema = v.object({
+	access_token: v.pipe(v.string(), v.minLength(1)),
+	refresh_token: v.optional(v.pipe(v.string(), v.minLength(1))),
+	expires_in: v.pipe(v.number(), v.finite(), v.gtValue(0)),
+	token_type: v.pipe(
+		v.string(),
+		v.check((value) => value.toLowerCase() === "bearer"),
+	),
+});
 
 export class OAuthClient {
 	private refreshing?: Promise<string>;
@@ -23,7 +36,11 @@ export class OAuthClient {
 		this.generation++;
 		const registration = await registerClient(this.origin, this.transport);
 		this.state.registration = registration;
-		this.state.pending = { state: random(), verifier: random(), createdAt: Date.now() };
+		this.state.pending = {
+			state: generateRandomState(),
+			verifier: generateRandomCodeVerifier(),
+			createdAt: Date.now(),
+		};
 		await this.save();
 
 		const url = new URL(registration.metadata.authorization_endpoint);
@@ -32,7 +49,7 @@ export class OAuthClient {
 			client_id: registration.clientId,
 			redirect_uri: `${this.origin}/oauth/callback`,
 			state: this.state.pending.state,
-			code_challenge: await challenge(this.state.pending.verifier),
+			code_challenge: await calculatePKCECodeChallenge(this.state.pending.verifier),
 			code_challenge_method: "S256",
 			resource: registration.resource,
 		}).toString();
@@ -45,14 +62,14 @@ export class OAuthClient {
 		const { state, code, error } = params;
 
 		if (!pending) {
-			throw new AuthenticationError(t(($) => $.errors.loginExpired));
+			throw new Error(t(($) => $.errors.loginExpired));
 		}
 
 		const stateMatches = state === pending.state;
 		const isExpired = Date.now() - pending.createdAt > 10 * 60_000;
 
 		if (!stateMatches || isExpired) {
-			throw new AuthenticationError(t(($) => $.errors.loginExpired));
+			throw new Error(t(($) => $.errors.loginExpired));
 		}
 
 		delete this.state.pending;
@@ -61,7 +78,7 @@ export class OAuthClient {
 		const isDenied = error !== undefined && error !== "";
 
 		if (isDenied || code === undefined || code === "") {
-			throw new AuthenticationError(t(($) => $.errors.loginDenied));
+			throw new Error(t(($) => $.errors.loginDenied));
 		}
 
 		await this.exchange({
@@ -76,7 +93,7 @@ export class OAuthClient {
 		const tokens = this.state.tokens;
 
 		if (!tokens) {
-			throw new AuthenticationError(t(($) => $.errors.loginRequired));
+			throw new Error(t(($) => $.errors.loginRequired));
 		}
 
 		if (tokens.expiresAt > Date.now() + 60_000) {
@@ -104,7 +121,7 @@ export class OAuthClient {
 		const registration = this.state.registration;
 
 		if (!registration) {
-			throw new AuthenticationError(t(($) => $.errors.startLogin));
+			throw new Error(t(($) => $.errors.startLogin));
 		}
 
 		const generation = this.generation;
@@ -125,13 +142,13 @@ export class OAuthClient {
 		});
 
 		if (generation !== this.generation) {
-			throw new AuthenticationError(t(($) => $.errors.loginChanged));
+			throw new Error(t(($) => $.errors.loginChanged));
 		}
 
 		if (response.status !== 200) {
 			if (response.status === 400 || response.status === 401) {
 				await this.logout();
-				throw new AuthenticationError(t(($) => $.errors.sessionExpired));
+				throw new Error(t(($) => $.errors.sessionExpired));
 			}
 
 			throw new ConnectionError(t(($) => $.errors.tokenFailed, { status: response.status }));
@@ -141,7 +158,7 @@ export class OAuthClient {
 		const refreshToken = result.refresh_token ?? this.state.tokens?.refreshToken;
 
 		if (refreshToken === undefined) {
-			throw new AuthenticationError(t(($) => $.errors.missingRefreshToken));
+			throw new Error(t(($) => $.errors.missingRefreshToken));
 		}
 
 		this.state.tokens = {

@@ -44,12 +44,7 @@ async function captureDelete(controller: PluginController, file: TAbstractFile) 
 	}
 }
 
-async function captureRename(
-	plugin: Plugin,
-	controller: PluginController,
-	file: TAbstractFile,
-	oldPath: string,
-) {
+async function captureRename(controller: PluginController, file: TAbstractFile, oldPath: string) {
 	const path = file.path;
 
 	if (file instanceof TFile) {
@@ -60,11 +55,9 @@ async function captureRename(
 		return;
 	}
 
-	const children = plugin.app.vault.getFiles().filter((child) => child.path.startsWith(`${path}/`));
-
-	for (const child of children) {
-		const previousChildPath = oldPath + child.path.slice(path.length);
-		await controller.engine?.captureRename(previousChildPath, child.path);
+	for (const childPath of descendantPaths(file)) {
+		const previousChildPath = oldPath + childPath.slice(path.length);
+		await controller.engine?.captureRename(previousChildPath, childPath);
 	}
 }
 
@@ -87,7 +80,7 @@ export function registerVaultEvents(plugin: Plugin, controller: PluginController
 	);
 	plugin.registerEvent(
 		vault.on("rename", (file, oldPath) => {
-			void controller.run(() => captureRename(plugin, controller, file, oldPath));
+			void controller.run(() => captureRename(controller, file, oldPath));
 		}),
 	);
 }

@@ -1,10 +1,13 @@
+import { enErrors as enSyncErrors, jaErrors as jaSyncErrors } from "@cf-sync/sync-core/i18n/errors";
+
 export const enErrors = {
 	serverOrigin: "Enter an HTTPS server URL without a path.",
+	websocketDisconnected: enSyncErrors.websocketDisconnected,
+	websocketTimeout: enSyncErrors.websocketTimeout,
 	websocketRejected: "The sync message was rejected: {{reason}}",
 	invalidConnectionUrl: "The connection URL is invalid.",
 	websocketFailed: "Could not connect to the WebSocket.",
 	websocketClosed: "The WebSocket connection was closed.",
-	databaseBusy: "The sync database is in use by another window.",
 	storageFailed: "Could not access sync data.",
 	storageAborted: "Saving sync data was interrupted.",
 	loginExpired: "The login request is invalid or has expired.",
@@ -27,11 +30,12 @@ export const enErrors = {
 
 export const jaErrors = {
 	serverOrigin: "サーバーはパスを含まない HTTPS URL を指定してください",
+	websocketDisconnected: jaSyncErrors.websocketDisconnected,
+	websocketTimeout: jaSyncErrors.websocketTimeout,
 	websocketRejected: "同期メッセージが拒否されました: {{reason}}",
 	invalidConnectionUrl: "接続 URL が無効です",
 	websocketFailed: "WebSocket に接続できません",
 	websocketClosed: "WebSocket が閉じられました",
-	databaseBusy: "同期データベースが別のウィンドウで使用されています",
 	storageFailed: "同期データにアクセスできません",
 	storageAborted: "同期データの保存が中断しました",
 	loginExpired: "ログイン要求が無効または期限切れです",

@@ -5,15 +5,19 @@ export type FileEvent =
 	| { type: "create" | "modify" | "delete"; file: TFile; path: string }
 	| { type: "rename"; file: TFile; path: string; oldPath: string };
 
-export type ExpectedEvent =
-	| { type: "create" | "modify"; path: string; digest: string }
+export interface ContentEvent {
+	type: "create" | "modify";
+	path: string;
+	digest: string;
+}
+
+type FileOperationEvent =
 	| { type: "delete"; file: TFile; path: string }
 	| { type: "rename"; file: TFile; path: string; oldPath: string };
 
-type ContentEvent = Extract<ExpectedEvent, { digest: string }>;
-
 export class OwnFileEvents {
-	private readonly expected = new Set<ExpectedEvent>();
+	private readonly contentEvents = new Set<ContentEvent>();
+	private readonly fileOperations = new Set<FileOperationEvent>();
 
 	constructor(private readonly vault: Vault) {}
 
@@ -23,12 +27,12 @@ export class OwnFileEvents {
 			return await this.consumeContentEvent(event);
 		}
 
-		for (const entry of this.expected) {
+		for (const entry of this.fileOperations) {
 			if (!matchesFileOperation(entry, event)) {
 				continue;
 			}
 
-			this.expected.delete(entry);
+			this.fileOperations.delete(entry);
 
 			return true;
 		}
@@ -37,9 +41,8 @@ export class OwnFileEvents {
 	}
 
 	private async consumeContentEvent(event: FileEvent): Promise<boolean> {
-		const candidates = [...this.expected].filter(
-			(entry): entry is ContentEvent =>
-				"digest" in entry && entry.type === event.type && entry.path === event.path,
+		const candidates = [...this.contentEvents].filter(
+			(entry) => entry.type === event.type && entry.path === event.path,
 		);
 
 		if (candidates.length === 0) {
@@ -58,7 +61,7 @@ export class OwnFileEvents {
 				continue;
 			}
 
-			if (this.expected.delete(entry)) {
+			if (this.contentEvents.delete(entry)) {
 				return true;
 			}
 		}
@@ -66,33 +69,41 @@ export class OwnFileEvents {
 		// Different content means an external edit. Remove old markers so a later
 		// external edit back to the previous content is not mistaken for our write.
 		for (const entry of candidates) {
-			this.expected.delete(entry);
+			this.contentEvents.delete(entry);
 		}
 
 		return false;
 	}
 
-	async run<T>(event: ExpectedEvent, operation: () => Promise<T>): Promise<T> {
-		this.expected.add(event);
-		try {
-			return await operation();
-		} catch (error) {
-			this.expected.delete(event);
-			throw error;
-		}
+	async expectContent<T>(event: ContentEvent, operation: () => Promise<T>): Promise<T> {
+		return await runExpecting(this.contentEvents, event, operation);
 	}
 
-	discard(event: ExpectedEvent) {
-		this.expected.delete(event);
+	async expectFileOperation<T>(event: FileOperationEvent, operation: () => Promise<T>): Promise<T> {
+		return await runExpecting(this.fileOperations, event, operation);
+	}
+
+	discardContent(event: ContentEvent) {
+		this.contentEvents.delete(event);
 	}
 }
 
-function matchesFileOperation(entry: ExpectedEvent, event: FileEvent): boolean {
-	if (entry.type !== event.type) {
-		return false;
+async function runExpecting<E, T>(
+	expected: Set<E>,
+	event: E,
+	operation: () => Promise<T>,
+): Promise<T> {
+	expected.add(event);
+	try {
+		return await operation();
+	} catch (error) {
+		expected.delete(event);
+		throw error;
 	}
+}
 
-	if (!("file" in entry)) {
+function matchesFileOperation(entry: FileOperationEvent, event: FileEvent): boolean {
+	if (entry.type !== event.type) {
 		return false;
 	}
 

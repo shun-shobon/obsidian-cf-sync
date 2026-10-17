@@ -53,16 +53,16 @@ export default class CFSyncPlugin extends Plugin {
 		this.registerObsidianProtocolHandler("cf-sync-auth", (params) => {
 			void controller.run(() => controller.finishLogin(params));
 		});
-		this.registerDomEvent(window, "online", () => {
+		const refresh = () => {
 			void controller.run(async () => {
 				await controller.engine?.refresh();
 			});
-		});
+		};
+
+		this.registerDomEvent(window, "online", refresh);
 		this.registerDomEvent(document, "visibilitychange", () => {
 			if (document.visibilityState === "visible") {
-				void controller.run(async () => {
-					await controller.engine?.refresh();
-				});
+				refresh();
 			}
 		});
 		this.app.workspace.onLayoutReady(() => {

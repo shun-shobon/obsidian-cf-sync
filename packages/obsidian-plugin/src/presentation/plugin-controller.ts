@@ -45,7 +45,7 @@ export class PluginController {
 		return this.saveQueue;
 	}
 
-	authentication(): OAuthClient {
+	private authentication(): OAuthClient {
 		this.auth ??= new OAuthClient(this.config.server, this.config.auth, obsidianTransport, () =>
 			this.persist(),
 		);

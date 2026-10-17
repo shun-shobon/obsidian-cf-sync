@@ -21,18 +21,7 @@ export function collaborationExtension(doc: Y.Doc, awareness?: Awareness): Exten
 		yCollab(doc.getText("content"), awareness, { undoManager }),
 		EditorView.theme({ ".cm-ySelectionInfo": { opacity: "1" } }),
 		EditorState.transactionExtender.of(() => ({ annotations: Transaction.addToHistory.of(false) })),
-		Prec.highest(
-			keymap.of(
-				yUndoManagerKeymap.map((binding) => ({
-					...binding,
-					run: (view) => {
-						binding.run?.(view);
-
-						return true;
-					},
-				})),
-			),
-		),
+		Prec.highest(keymap.of(yUndoManagerKeymap)),
 		Prec.highest(
 			EditorView.domEventHandlers({
 				beforeinput(event, view) {

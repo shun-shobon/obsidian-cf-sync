@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { AuthenticationError } from "../src/domain/authentication-error";
 import { discoverAuthorizationServer } from "../src/infra/auth/oauth-discovery";
 import type { HttpRequest, HttpResponse, Transport } from "../src/infra/http/transport";
 
@@ -87,7 +86,7 @@ describe("Cloudflare Access OAuth discovery", () => {
 			challenge.status = status;
 
 			await expect(discoverAuthorizationServer(origin, transport)).rejects.toThrow(
-				AuthenticationError,
+				`did not return 401 (${status})`,
 			);
 			expect(requests).toHaveLength(1);
 		},

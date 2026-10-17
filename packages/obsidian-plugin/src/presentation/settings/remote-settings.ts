@@ -1,5 +1,4 @@
 import type { Device, Snapshot, VaultInfo } from "@cf-sync/protocol";
-import type { AccountApi } from "@cf-sync/sync-core/infra/http/server-api";
 import { Setting } from "obsidian";
 import type { App, SettingDefinitionItem } from "obsidian";
 
@@ -24,7 +23,7 @@ export function remoteSettingDefinitions(
 		},
 		{
 			name: t(($) => $.ui.createRemoteVault),
-			render: (setting) => renderCreateVault(setting, controller, refresh, controller.account()),
+			render: (setting) => renderCreateVault(setting, controller, refresh),
 		},
 		{
 			name: t(($) => $.ui.devices),
@@ -139,12 +138,7 @@ function renderVaultSelection(
 	});
 }
 
-function renderCreateVault(
-	setting: Setting,
-	controller: PluginController,
-	refresh: () => void,
-	api: AccountApi,
-) {
+function renderCreateVault(setting: Setting, controller: PluginController, refresh: () => void) {
 	let name = "";
 	setting
 		.addText((input) =>
@@ -159,7 +153,7 @@ function renderCreateVault(
 						throw new Error(t(($) => $.ui.vaultNameRequired));
 					}
 
-					await api.createVault(name);
+					await controller.account().createVault(name);
 					refresh();
 				});
 			}),
