@@ -301,19 +301,9 @@ export class SyncEngine {
 			return;
 		}
 
-		const initialized = await this.session.enqueue(async () => {
-			if (!this.isCurrent(generation)) {
-				return false;
-			}
-			const result = await this.session.reconcile.initialize(initialSnapshot);
-			for (const file of this.state.data.files) {
-				const doc = this.documents.get(file.id);
-				if (doc && isExcluded(file.path, this.state.data.exclusions)) {
-					this.presence.forgetDoc(doc);
-				}
-			}
-			return result;
-		});
+		const initialized = await this.session.reconcile.initialize(initialSnapshot, () =>
+			this.isCurrent(generation),
+		);
 		if (!this.isCurrent(generation)) {
 			return;
 		}
@@ -322,6 +312,8 @@ export class SyncEngine {
 
 			return;
 		}
+
+		await this.session.enqueue(() => this.forgetExcludedDocs());
 
 		this.ready = true;
 		await this.sendPending.run(() => this.isCurrent(generation));
@@ -343,6 +335,15 @@ export class SyncEngine {
 		this.state.emitProgress();
 		this.scheduler.succeeded();
 		this.schedulePending();
+	}
+
+	private forgetExcludedDocs(): void {
+		for (const file of this.state.data.files) {
+			const doc = this.documents.get(file.id);
+			if (doc && isExcluded(file.path, this.state.data.exclusions)) {
+				this.presence.forgetDoc(doc);
+			}
+		}
 	}
 
 	private schedulePending(): void {
@@ -431,6 +432,10 @@ export class SyncEngine {
 				if (this.disposed || isExcluded(file.path, this.state.data.exclusions)) {
 					return;
 				}
+				// The document was replaced or deleted while this edit waited; the editor's save captures the text instead.
+				if (this.documents.get(file.id) !== doc) {
+					return;
+				}
 
 				await this.session.changes.editorChanged(file, doc);
 				this.schedule();
@@ -479,6 +484,11 @@ export class SyncEngine {
 			}
 			await this.session.enqueue(async () => {
 				if (!this.isCurrent(generation)) {
+					return;
+				}
+				// Before initialization a path may still belong to an unmatched local file; the snapshot after it covers this change.
+				if (!this.state.data.initialized) {
+					this.requestReconcile();
 					return;
 				}
 				const pending = this.state.data.pending.filter(

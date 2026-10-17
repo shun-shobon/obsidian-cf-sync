@@ -27,7 +27,7 @@ export interface LocalState {
 	exclusions: string[];
 	revision: number;
 	r2Revision: number;
-	conflicts: FileRecord[];
+	conflictIds: string[];
 }
 
 export interface SyncStatus {

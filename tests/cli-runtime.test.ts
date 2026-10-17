@@ -209,7 +209,7 @@ describe("CLI filesystem and SQLite against the real Worker", () => {
 
 		const store = new SqliteStore(join(right.root, ".cf-sync/state.sqlite"));
 		try {
-			expect((await store.load())?.conflicts).toEqual(result.conflicts);
+			expect((await store.load())?.conflictIds).toEqual(result.conflicts.map((file) => file.id));
 		} finally {
 			store.close();
 		}
