@@ -1,14 +1,11 @@
 import type { Operation } from "@cf-sync/protocol";
 import { Hono } from "hono";
 
-import { Account } from "../../packages/worker/src/infra/durable-objects/account";
 import { Vault } from "../../packages/worker/src/infra/durable-objects/vault";
 import type { Env } from "../../packages/worker/src/infra/env";
 import { onError } from "../../packages/worker/src/infra/http/responses";
 import { jsonStream } from "../../packages/worker/src/infra/rpc-json";
 import { unwrapRpcResult } from "../../packages/worker/src/infra/rpc-result";
-
-export { Account };
 
 export class TestVault extends Vault {
 	private readonly incarnation = crypto.randomUUID();

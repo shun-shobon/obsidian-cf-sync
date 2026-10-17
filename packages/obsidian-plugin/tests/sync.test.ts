@@ -3,9 +3,9 @@ import { digest } from "@cf-sync/protocol";
 import { SyncEngine } from "@cf-sync/sync-core/sync/usecase/sync-engine";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { Server } from "../../sync-core/tests/helpers/sync-server";
+import { Vault } from "../../sync-core/tests/helpers/sync-vault";
 import { IndexedDbStore } from "../src/infra/storage/indexed-db-store";
-import { Server } from "./helpers/sync-server";
-import { Vault } from "./helpers/sync-vault";
 
 const encode = (value: string) => new TextEncoder().encode(value);
 const engines: SyncEngine[] = [];

@@ -1,9 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
-
 import "fake-indexeddb/auto";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import { digest } from "@cf-sync/protocol";
 import type {
 	Operation,
@@ -12,58 +7,21 @@ import type {
 	BlobRef,
 	ServerMessage,
 } from "@cf-sync/protocol";
-import { build } from "esbuild";
 import { toUint8Array, fromUint8Array } from "js-base64";
-import { Miniflare } from "miniflare";
-import { afterAll, assert, beforeAll, describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
-import { apply, deviceId, document, request, vaultId } from "./helpers/runtime-api";
+import { apply, deviceId, document, request, uploadAsDevice, vaultId } from "./helpers/runtime-api";
 import { createRuntimeClient } from "./helpers/runtime-client";
 import { createRuntimeApi } from "./helpers/runtime-transport";
+import { useWorkerRuntime } from "./helpers/worker-runtime";
 
-let script: string;
-
-beforeAll(async () => {
-	const built = await build({
-		entryPoints: ["tests/fixtures/worker.ts"],
-		bundle: true,
-		write: false,
-		format: "esm",
-		platform: "browser",
-		target: "es2022",
-		external: ["cloudflare:workers"],
-	});
-	script = built.outputFiles[0]!.text;
-});
-
-const runtimes: Miniflare[] = [];
-const folders: string[] = [];
-
-afterAll(async () => {
-	await Promise.all(runtimes.map((runtime) => runtime.dispose()));
-	await Promise.all(folders.map((folder) => rm(folder, { recursive: true, force: true })));
-});
+const runtime = useWorkerRuntime();
 
 async function start(folder?: string) {
-	const storage = folder ?? (await mkdtemp(join(tmpdir(), "cf-sync-test-")));
-	if (folder === undefined) {
-		folders.push(storage);
-	}
-	const mf = new Miniflare({
-		modules: true,
-		script,
-		compatibilityDate: "2026-07-30",
-		durableObjects: {
-			VAULTS: { className: "TestVault", useSQLite: true },
-			ACCOUNT: { className: "Account", useSQLite: true },
-		},
-		r2Buckets: ["BUCKET"],
-		durableObjectsPersist: join(storage, "do"),
-		r2Persist: join(storage, "r2"),
-	});
-	runtimes.push(mf);
-	return { mf, storage };
+	const storage = folder ?? (await runtime.temporaryDirectory());
+
+	return { mf: runtime.start(storage), storage };
 }
 
 function textUpdate(text: string) {
@@ -104,8 +62,7 @@ describe("Durable Object and R2 runtime integration", () => {
 		expect(await (await bucket.get(`vaults/${vaultId}/files/日記/ノート.md`))!.text()).toBe(
 			"日本語のノート",
 		);
-		await mf.dispose();
-		runtimes.splice(runtimes.indexOf(mf), 1);
+		await runtime.dispose(mf);
 		const restarted = (await start(storage)).mf;
 		expect((await apply(restarted, op)).revision).toBe(first.revision);
 		expect(plain(await document(restarted, id))).toBe("日本語のノート");
@@ -186,16 +143,7 @@ describe("Durable Object and R2 runtime integration", () => {
 		const bytes = new Uint8Array(20 * 1024 * 1024).fill(123);
 		const key = crypto.randomUUID();
 		const hash = await digest(bytes);
-		const uploaded = await mf.dispatchFetch(`https://test/blobs/${key}`, {
-			method: "PUT",
-			headers: {
-				"X-Vault-Id": vaultId,
-				"X-Device-Id": deviceId,
-				"X-Content-Digest": hash,
-				"X-Content-Size": String(bytes.length),
-			},
-			body: bytes,
-		});
+		const uploaded = await uploadAsDevice(mf, deviceId, key, bytes, hash);
 		assert.strictEqual(uploaded.status, 200, await uploaded.clone().text());
 		const blob = (await uploaded.json()) as BlobRef;
 		const downloaded = await request(mf, `/blobs/${key}`);

@@ -6,9 +6,9 @@ import type { SyncStatus } from "@cf-sync/sync-core/sync/domain/sync-state";
 import { SyncEngine } from "@cf-sync/sync-core/sync/usecase/sync-engine";
 import { afterEach, expect, it, vi } from "vitest";
 
+import { Server } from "../../sync-core/tests/helpers/sync-server";
+import { Vault } from "../../sync-core/tests/helpers/sync-vault";
 import { IndexedDbStore } from "../src/infra/storage/indexed-db-store";
-import { Server } from "./helpers/sync-server";
-import { Vault } from "./helpers/sync-vault";
 
 const engines: SyncEngine[] = [];
 

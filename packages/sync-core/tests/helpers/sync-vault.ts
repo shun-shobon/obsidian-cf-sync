@@ -1,4 +1,6 @@
-import type { VaultPort } from "@cf-sync/sync-core/sync/ports/vault-port";
+import { equalFlat } from "lib0/array";
+
+import type { VaultPort } from "../../src/sync/ports/vault-port";
 
 export class Vault implements VaultPort {
 	files = new Map<string, Uint8Array>();
@@ -21,25 +23,17 @@ export class Vault implements VaultPort {
 	}
 
 	write(path: string, bytes: Uint8Array) {
-		this.files.set(path, bytes);
+		this.files.set(path, bytes.slice());
 
 		return Promise.resolve();
 	}
 
 	writeIfUnchanged(path: string, expected: Uint8Array | undefined, bytes: Uint8Array) {
-		const current = this.files.get(path);
-		if (current?.length !== expected?.length) {
+		if (!matchesExpected(this.files.get(path), expected)) {
 			return Promise.resolve(false);
 		}
 
-		if (current && expected) {
-			const matchesBaseline = current.every((byte, index) => byte === expected[index]);
-			if (!matchesBaseline) {
-				return Promise.resolve(false);
-			}
-		}
-
-		this.files.set(path, bytes);
+		this.files.set(path, bytes.slice());
 
 		return Promise.resolve(true);
 	}
@@ -58,4 +52,12 @@ export class Vault implements VaultPort {
 	text(path: string) {
 		return new TextDecoder().decode(this.files.get(path));
 	}
+}
+
+function matchesExpected(current: Uint8Array | undefined, expected: Uint8Array | undefined) {
+	if (current === undefined || expected === undefined) {
+		return current === expected;
+	}
+
+	return equalFlat(current, expected);
 }

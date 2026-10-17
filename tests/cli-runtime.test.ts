@@ -1,5 +1,4 @@
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { ConnectionError } from "@cf-sync/sync-core/domain/connection-error";
@@ -7,55 +6,24 @@ import { VaultApi } from "@cf-sync/sync-core/infra/http/server-api";
 import { PlanSync } from "@cf-sync/sync-core/sync/usecase/plan-sync";
 import { SyncOnce } from "@cf-sync/sync-core/sync/usecase/sync-once";
 import type { SyncOnceOptions } from "@cf-sync/sync-core/sync/usecase/sync-once-options";
-import { build } from "esbuild";
-import { Miniflare } from "miniflare";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { FileVault } from "../packages/cli/src/infra/fs/vault-adapter";
 import { ensureMetadataDirectory } from "../packages/cli/src/infra/fs/vault-binding";
 import { serverConnection } from "../packages/cli/src/infra/http/server-connection";
 import { SqliteStore } from "../packages/cli/src/infra/storage/sqlite-store";
 import { syncExitCode } from "../packages/cli/src/presentation/output";
+import { useWorkerRuntime } from "./helpers/worker-runtime";
 
-let script: string;
-const runtimes: Miniflare[] = [];
-const folders: string[] = [];
+const runtime = useWorkerRuntime();
 const encode = (text: string) => new TextEncoder().encode(text);
-
-beforeAll(async () => {
-	const built = await build({
-		entryPoints: ["tests/fixtures/worker.ts"],
-		bundle: true,
-		write: false,
-		format: "esm",
-		platform: "browser",
-		target: "es2022",
-		external: ["cloudflare:workers"],
-	});
-	script = built.outputFiles[0]!.text;
-});
 
 afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-afterAll(async () => {
-	await Promise.all(runtimes.map((runtime) => runtime.dispose()));
-	await Promise.all(folders.map((folder) => rm(folder, { recursive: true, force: true })));
-});
-
 async function start() {
-	const mf = new Miniflare({
-		modules: true,
-		script,
-		compatibilityDate: "2026-07-30",
-		durableObjects: {
-			VAULTS: { className: "TestVault", useSQLite: true },
-			ACCOUNT: { className: "Account", useSQLite: true },
-		},
-		r2Buckets: ["BUCKET"],
-	});
-	runtimes.push(mf);
+	const mf = runtime.start();
 	const vaultId = crypto.randomUUID();
 	let loseAcknowledgment = false;
 	const fetcher: typeof fetch = async (input, init) => {
@@ -84,8 +52,7 @@ async function start() {
 	};
 	vi.stubGlobal("fetch", fetcher);
 	return async () => {
-		const root = await mkdtemp(join(tmpdir(), "cf-sync-cli-"));
-		folders.push(root);
+		const root = await runtime.temporaryDirectory();
 		const metadata = await ensureMetadataDirectory(root);
 		const vault = new FileVault(root);
 		const api = new VaultApi(
@@ -96,8 +63,8 @@ async function start() {
 			crypto.randomUUID(),
 			vaultId,
 		);
-		const withStore = async <T>(use: (ports: SyncOnceOptions) => Promise<T>) => {
-			const store = new SqliteStore(join(metadata, "state.sqlite"));
+		const withStore = async <T>(dryRun: boolean, use: (ports: SyncOnceOptions) => Promise<T>) => {
+			const store = new SqliteStore(join(metadata, "state.sqlite"), dryRun);
 			try {
 				return await use({ vault, store, api });
 			} finally {

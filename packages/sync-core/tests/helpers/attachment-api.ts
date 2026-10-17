@@ -1,7 +1,7 @@
 import type { BlobRef, FileRecord, Operation, OperationResult } from "@cf-sync/protocol";
 
-import type { Server } from "../../../obsidian-plugin/tests/helpers/sync-server";
 import type { RestApiPort } from "../../src/sync/ports/api-port";
+import type { Server } from "./sync-server";
 
 interface StoredAttachment {
 	file: FileRecord;
