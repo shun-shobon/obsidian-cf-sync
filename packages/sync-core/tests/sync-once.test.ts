@@ -165,6 +165,22 @@ describe("HTTP batch synchronization", () => {
 		expect((await server.api.snapshot()).files).toEqual([]);
 	});
 
+	it("adopts an identical initial file instead of uploading a copy", async () => {
+		const server = new Server();
+		const first = { vault: new Vault(), store: new Store(), api: server.api };
+		await first.vault.write("note.md", bytes("hello"));
+		await new SyncOnce(first).run();
+		const before = server.operations.length;
+		const next = { vault: new Vault(), store: new Store(), api: server.api };
+		await next.vault.write("note.md", bytes("hello"));
+
+		expect(await new SyncOnce(next).run()).toMatchObject({ pending: 0, conflicts: [] });
+
+		expect(server.operations).toHaveLength(before);
+		expect(next.store.state!.files.map((file) => file.id)).toEqual([...server.docs.keys()]);
+		expect(next.vault.text("note.md")).toBe("hello");
+	});
+
 	it("does not report downloads for an identical initial directory", async () => {
 		const server = new Server();
 		const first = { vault: new Vault(), store: new Store(), api: server.api };

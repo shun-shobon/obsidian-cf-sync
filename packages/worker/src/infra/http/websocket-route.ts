@@ -12,11 +12,7 @@ export async function routeWebSocket(c: Context<{ Bindings: Env }>): Promise<Res
 	const result = await account.vault(vaultId);
 	unwrapRpcResult(result);
 
-	const headers = new Headers(c.req.raw.headers);
-	headers.set("X-Vault-Id", vaultId);
-
 	const target = c.env.VAULTS.getByName(vaultId);
-	const request = new Request(c.req.raw, { headers });
 
-	return await target.fetch(request);
+	return await target.fetch(c.req.raw);
 }

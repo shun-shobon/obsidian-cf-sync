@@ -88,7 +88,7 @@ export class SyncSession {
 		this.state.data.exclusions = snapshot.exclusions;
 
 		await this.recoverLocalChanges();
-		await this.reconcile.initialize(snapshot);
+		await this.reconcile.initialize(snapshot, () => true);
 
 		return snapshot;
 	}

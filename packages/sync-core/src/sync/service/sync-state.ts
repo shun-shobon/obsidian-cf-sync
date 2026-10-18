@@ -15,7 +15,7 @@ export class SyncState {
 		exclusions: [],
 		revision: 0,
 		r2Revision: 0,
-		conflicts: [],
+		conflictIds: [],
 	};
 
 	constructor(
@@ -25,10 +25,19 @@ export class SyncState {
 	) {}
 
 	async load(): Promise<void> {
-		const stored = await this.store.load();
-		if (stored) {
-			this.data = stored;
+		const stored: LocalState | LegacyLocalState | undefined = await this.store.load();
+		if (!stored) {
+			return;
 		}
+
+		if (!isLegacy(stored)) {
+			this.data = stored;
+
+			return;
+		}
+
+		this.data = upgradeLegacy(stored);
+		await this.persist();
 	}
 
 	hasPending(): boolean {
@@ -82,11 +91,31 @@ export class SyncState {
 	}
 
 	reportConflict(file: FileRecord, message: string): void {
-		if (!this.data.conflicts.some((entry) => entry.id === file.id)) {
-			this.data.conflicts.push(file);
-			this.onConflict(file, message);
+		if (this.data.conflictIds.includes(file.id)) {
+			return;
 		}
+
+		this.data.conflictIds.push(file.id);
+		this.onConflict(file, message);
 	}
+
+	/** A deleted file never returns under the same ID, so its report no longer needs suppressing. */
+	forgetConflict(fileId: string): void {
+		this.data.conflictIds = this.data.conflictIds.filter((id) => id !== fileId);
+	}
+}
+
+// Releases up to 0.3.1 stored whole conflict records. Rewriting them on load keeps the old shape out of the rest of the code.
+type LegacyLocalState = Omit<LocalState, "conflictIds"> & { conflicts: Pick<FileRecord, "id">[] };
+
+function isLegacy(state: LocalState | LegacyLocalState): state is LegacyLocalState {
+	return "conflicts" in state;
+}
+
+function upgradeLegacy(legacy: LegacyLocalState): LocalState {
+	const { conflicts, ...state } = legacy;
+
+	return { ...state, conflictIds: conflicts.map((file) => file.id) };
 }
 
 function errorMessage(error: unknown): string {

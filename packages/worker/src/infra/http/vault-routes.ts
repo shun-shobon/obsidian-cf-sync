@@ -41,14 +41,14 @@ vaultApiRoutes.use("*", async (c, next) => {
 
 vaultApiRoutes.get("/snapshot", async (c) => {
 	const vault = c.get("vault");
-	const result = await vault.snapshot(c.get("vaultId"));
+	const result = await vault.snapshot();
 
 	return jsonStreamResponse(result);
 });
 
 vaultApiRoutes.post("/operations", async (c) => {
 	const vault = c.get("vault");
-	const result = await vault.applyOperation(c.get("vaultId"), c.get("deviceId"), c.req.raw.body);
+	const result = await vault.applyOperation(c.get("deviceId"), c.req.raw.body);
 
 	return c.json(unwrapRpcResult(result));
 });
@@ -56,7 +56,7 @@ vaultApiRoutes.post("/operations", async (c) => {
 vaultApiRoutes.get("/files/:id", async (c) => {
 	const id = v.parse(idSchema, c.req.param("id"));
 	const vault = c.get("vault");
-	const result = await vault.document(c.get("vaultId"), id);
+	const result = await vault.document(id);
 
 	return jsonStreamResponse(result);
 });
@@ -64,7 +64,7 @@ vaultApiRoutes.get("/files/:id", async (c) => {
 vaultApiRoutes.put("/exclusions", async (c) => {
 	const { exclusions } = v.parse(exclusionsSchema, await c.req.json());
 	const vault = c.get("vault");
-	const result = await vault.setExclusions(c.get("vaultId"), exclusions);
+	const result = await vault.setExclusions(exclusions);
 
 	return jsonStreamResponse(result);
 });
@@ -73,7 +73,7 @@ vaultApiRoutes.post("/tickets", async (c) => {
 	const vaultId = c.get("vaultId");
 	const deviceId = c.get("deviceId");
 	const vault = c.get("vault");
-	const result = await vault.issueTicket(vaultId, deviceId);
+	const result = await vault.issueTicket(deviceId);
 	const ticket = unwrapRpcResult(result);
 
 	// A deletion that finished between authorization and issuance could not discard this ticket.
@@ -99,7 +99,7 @@ vaultApiRoutes.post("/tickets", async (c) => {
 vaultApiRoutes.get("/blobs/:id", async (c) => {
 	const id = v.parse(idSchema, c.req.param("id"));
 	const vault = c.get("vault");
-	const result = await vault.downloadBlob(c.get("vaultId"), id);
+	const result = await vault.downloadBlob(id);
 	const body = unwrapRpcResult(result);
 
 	return new Response(body, { headers: { "Content-Type": "application/octet-stream" } });
@@ -110,7 +110,7 @@ vaultApiRoutes.put("/blobs/:id", async (c) => {
 	const digest = v.parse(digestSchema, c.req.header("X-Content-Digest"));
 	const size = c.req.raw.headers.get("X-Content-Size");
 	const vault = c.get("vault");
-	const result = await vault.uploadBlob(c.get("vaultId"), key, digest, c.req.raw.body, size);
+	const result = await vault.uploadBlob(key, digest, c.req.raw.body, size);
 
 	return c.json(unwrapRpcResult(result));
 });

@@ -13,10 +13,18 @@ import * as Y from "yjs";
 
 import {
 	apply,
+	deleteDevice,
 	deviceId,
 	document,
+	echoJson,
+	flush,
+	issueTicket,
+	openWebSocket,
+	registerDevice,
+	registerVault,
 	request,
 	requestAsDevice,
+	runtimeState,
 	uploadAsDevice,
 	vaultId,
 } from "./helpers/runtime-api";
@@ -28,8 +36,14 @@ const runtime = useWorkerRuntime();
 
 async function start(folder?: string) {
 	const storage = folder ?? (await runtime.temporaryDirectory());
+	const mf = runtime.start(storage);
 
-	return { mf: runtime.start(storage), storage };
+	if (folder === undefined) {
+		await registerVault(mf);
+		await registerDevice(mf, deviceId);
+	}
+
+	return { mf, storage };
 }
 
 function textUpdate(text: string) {
@@ -65,7 +79,7 @@ describe("Durable Object and R2 runtime integration", () => {
 		const first = await apply(mf, op);
 		expect((await apply(mf, op)).revision).toBe(first.revision);
 		expect(plain(await document(mf, id))).toBe("日本語のノート");
-		expect((await request(mf, "/flush")).status).toBe(200);
+		await flush(mf);
 		const bucket = await mf.getR2Bucket("BUCKET");
 		expect(await (await bucket.get(`vaults/${vaultId}/files/日記/ノート.md`))!.text()).toBe(
 			"日本語のノート",
@@ -168,9 +182,10 @@ describe("Durable Object and R2 runtime integration", () => {
 			path: "assets/image.png",
 			content: { kind: "blob", blob },
 		});
-		await request(mf, "/flush");
-		await request(mf, "/exclusions", { exclusions: ["assets"] }, "PUT");
-		await request(mf, "/flush");
+		await flush(mf);
+		const excluded = await request(mf, "/exclusions", { exclusions: ["assets"] }, "PUT");
+		expect(excluded.status).toBe(200);
+		await flush(mf);
 		const bucket = await mf.getR2Bucket("BUCKET");
 		const saved = await (await bucket.get(
 			`vaults/${vaultId}/files/assets/image.png`,
@@ -184,7 +199,7 @@ describe("Durable Object and R2 runtime integration", () => {
 	it("streams JSON larger than the RPC value limit in both directions", async () => {
 		const { mf } = await start();
 		const content = "x".repeat(33 * 1024 * 1024);
-		const response = await request(mf, "/echo-json", { content });
+		const response = await echoJson(mf, { content });
 
 		expect(response.status).toBe(200);
 
@@ -192,6 +207,18 @@ describe("Durable Object and R2 runtime integration", () => {
 
 		expect(received.content).toBe(content);
 	}, 30_000);
+
+	it("authenticates, validates and authorizes requests through the public routes", async () => {
+		const { mf } = await start();
+		const unauthenticated = await mf.dispatchFetch(`https://test/api/vaults/${vaultId}/snapshot`, {
+			headers: { "X-Device-Id": deviceId },
+		});
+
+		expect(unauthenticated.status).toBe(401);
+		expect((await requestAsDevice(mf, crypto.randomUUID(), "/snapshot")).status).toBe(403);
+		expect((await request(mf, "/files/not-an-id")).status).toBe(400);
+		expect((await request(mf, `/blobs/${crypto.randomUUID()}`, {}, "PUT")).status).toBe(400);
+	});
 
 	it("preserves application errors across RPC and continues processing", async () => {
 		const { mf } = await start();
@@ -226,12 +253,7 @@ describe("Durable Object and R2 runtime integration", () => {
 
 	it("hibernates an idle connected vault and delivers changes after waking", async () => {
 		const { mf } = await start();
-		const ticketResponse = await request(mf, "/tickets", {});
-		const ticket = (await ticketResponse.json()) as { ticket: string };
-		const response = await mf.dispatchFetch(
-			`https://test/ws?ticket=${encodeURIComponent(ticket.ticket)}`,
-			{ headers: { "X-Vault-Id": vaultId, Upgrade: "websocket" } },
-		);
+		const response = await openWebSocket(mf, await issueTicket(mf));
 		expect(response.status).toBe(101);
 
 		const socket = response.webSocket!;
@@ -246,11 +268,7 @@ describe("Durable Object and R2 runtime integration", () => {
 		});
 
 		try {
-			const before = (await (await request(mf, "/runtime-state")).json()) as {
-				incarnation: string;
-				alarm: number | null;
-				connections: number;
-			};
+			const before = await runtimeState(mf);
 			expect(before.alarm).toBeNull();
 			expect(before.connections).toBe(1);
 
@@ -259,7 +277,7 @@ describe("Durable Object and R2 runtime integration", () => {
 			});
 
 			expect(messages).toEqual([]);
-			const after = (await (await request(mf, "/runtime-state")).json()) as typeof before;
+			const after = await runtimeState(mf);
 			expect(after.incarnation).not.toBe(before.incarnation);
 			expect(after.alarm).toBeNull();
 			expect(after.connections).toBe(1);
@@ -287,24 +305,22 @@ describe("Durable Object and R2 runtime integration", () => {
 	it("consumes a ticket once and discards a deleted device's sockets and tickets", async () => {
 		const { mf } = await start();
 		const issue = async (device: string) => {
-			const response = await requestAsDevice(mf, device, "/tickets", {});
-			const { ticket } = (await response.json()) as { ticket: string };
-			return () =>
-				mf.dispatchFetch(`https://test/ws?ticket=${encodeURIComponent(ticket)}`, {
-					headers: { "X-Vault-Id": vaultId, Upgrade: "websocket" },
-				});
+			const url = await issueTicket(mf, device);
+			return () => openWebSocket(mf, url);
 		};
+		const otherDeviceId = crypto.randomUUID();
+		await registerDevice(mf, otherDeviceId);
 		const connect = await issue(deviceId);
 		const response = await connect();
 		expect(response.status).toBe(101);
 		response.webSocket!.accept();
 		expect((await connect()).status).toBe(401);
 		const unused = await issue(deviceId);
-		const otherDevice = await issue(crypto.randomUUID());
+		const otherDevice = await issue(otherDeviceId);
 		const closed = new Promise<number>((resolve) => {
 			response.webSocket!.addEventListener("close", (event) => resolve(event.code));
 		});
-		await request(mf, "/remove-device", { deviceId });
+		await deleteDevice(mf, deviceId);
 		expect(await closed).toBe(4003);
 		expect((await unused()).status).toBe(401);
 		const other = await otherDevice();
@@ -317,8 +333,8 @@ describe("Durable Object and R2 runtime integration", () => {
 describe("client engine against the real DO", () => {
 	it("converges offline edits through durable websocket operations", async () => {
 		const { mf } = await start();
-		const left = createRuntimeClient(mf, { "note.md": "base" });
-		const right = createRuntimeClient(mf, {});
+		const left = await createRuntimeClient(mf, { "note.md": "base" });
+		const right = await createRuntimeClient(mf, {});
 
 		try {
 			await left.engine.start();
@@ -336,7 +352,7 @@ describe("client engine against the real DO", () => {
 			await right.engine.syncNow();
 			expect(leftText.toString()).toBe("LEFT base RIGHT");
 			expect(rightText.toString()).toBe(leftText.toString());
-			await request(mf, "/flush");
+			await flush(mf);
 			const bucket = await mf.getR2Bucket("BUCKET");
 			expect(await (await bucket.get(`vaults/${vaultId}/files/note.md`))!.text()).toBe(
 				"LEFT base RIGHT",
@@ -355,7 +371,9 @@ describe("realtime websocket transport", () => {
 		const rightId = crypto.randomUUID();
 		const leftMessages: ServerMessage[] = [];
 		const rightMessages: ServerMessage[] = [];
-		const left = await createRuntimeApi(mf, leftId).connect(
+		const left = await (
+			await createRuntimeApi(mf, leftId)
+		).connect(
 			(message) => leftMessages.push(message),
 			() => {},
 		);
@@ -387,7 +405,9 @@ describe("realtime websocket transport", () => {
 		});
 		await expect.poll(() => leftMessages.some((m) => m.type === "presence")).toBe(true);
 		let leftClosed = false;
-		let right = await createRuntimeApi(mf, rightId).connect(
+		let right = await (
+			await createRuntimeApi(mf, rightId)
+		).connect(
 			(message) => rightMessages.push(message),
 			() => {},
 		);
@@ -423,7 +443,9 @@ describe("realtime websocket transport", () => {
 			expect(plain(await document(mf, fileId))).toBe("base live");
 			right.close();
 			rightMessages.length = 0;
-			right = await createRuntimeApi(mf, rightId).connect(
+			right = await (
+				await createRuntimeApi(mf, rightId)
+			).connect(
 				(message) => rightMessages.push(message),
 				() => {},
 			);
@@ -457,7 +479,9 @@ it("does not replay expired presence to a new websocket connection", async () =>
 	const { mf } = await start();
 	const leftId = crypto.randomUUID();
 	const messages: ServerMessage[] = [];
-	const left = await createRuntimeApi(mf, leftId).connect(
+	const left = await (
+		await createRuntimeApi(mf, leftId)
+	).connect(
 		(message) => messages.push(message),
 		() => {},
 	);
@@ -478,7 +502,9 @@ it("does not replay expired presence to a new websocket connection", async () =>
 			setTimeout(resolve, 10_050);
 		});
 		const newcomerMessages: ServerMessage[] = [];
-		const right = await createRuntimeApi(mf, crypto.randomUUID()).connect(
+		const right = await (
+			await createRuntimeApi(mf, crypto.randomUUID())
+		).connect(
 			(message) => newcomerMessages.push(message),
 			() => {},
 		);

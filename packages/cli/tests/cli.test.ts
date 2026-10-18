@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { bindingSchema } from "../src/domain/binding";
 import { resolveCredentials } from "../src/infra/config/credentials";
+import { resolveServerUrl } from "../src/infra/config/server-url";
 import { FileVault } from "../src/infra/fs/vault-adapter";
 import { SqliteStore } from "../src/infra/storage/sqlite-store";
 import { lockVault } from "../src/infra/storage/vault-lock";
@@ -92,6 +93,13 @@ describe("CLI persistence and filesystem", () => {
 		release();
 		const unlock = lockVault(root);
 		unlock();
+	});
+
+	it("prefers the --server flag over CF_SYNC_SERVER_URL", () => {
+		const env = { CF_SYNC_SERVER_URL: "https://env.example.com" };
+		expect(resolveServerUrl("https://flag.example.com/", env)).toBe("https://flag.example.com");
+		expect(resolveServerUrl(undefined, env)).toBe("https://env.example.com");
+		expect(() => resolveServerUrl(undefined, {})).toThrow("Specify --server or CF_SYNC_SERVER_URL");
 	});
 
 	it("normalizes the server URL when reading a Vault binding", () => {

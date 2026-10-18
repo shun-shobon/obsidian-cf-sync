@@ -2,7 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { ConnectionError } from "@cf-sync/sync-core/domain/connection-error";
-import { VaultApi } from "@cf-sync/sync-core/infra/http/server-api";
+import { AccountApi, VaultApi } from "@cf-sync/sync-core/infra/http/server-api";
 import { PlanSync } from "@cf-sync/sync-core/sync/usecase/plan-sync";
 import { SyncOnce } from "@cf-sync/sync-core/sync/usecase/sync-once";
 import type { SyncOnceOptions } from "@cf-sync/sync-core/sync/usecase/sync-once-options";
@@ -13,6 +13,7 @@ import { ensureMetadataDirectory } from "../packages/cli/src/infra/fs/vault-bind
 import { serverConnection } from "../packages/cli/src/infra/http/server-connection";
 import { SqliteStore } from "../packages/cli/src/infra/storage/sqlite-store";
 import { syncExitCode } from "../packages/cli/src/presentation/output";
+import { TEST_ACCESS_ASSERTION } from "./fixtures/access-auth";
 import { useWorkerRuntime } from "./helpers/worker-runtime";
 
 const runtime = useWorkerRuntime();
@@ -24,23 +25,19 @@ afterEach(() => {
 
 async function start() {
 	const mf = runtime.start();
-	const vaultId = crypto.randomUUID();
 	let loseAcknowledgment = false;
 	const fetcher: typeof fetch = async (input, init) => {
 		const request = new Request(input, init);
 		expect(request.headers.get("CF-Access-Client-Id")).toBe("cli-client.access");
 		expect(request.headers.get("CF-Access-Client-Secret")).toBe("test-secret");
-		const prefix = `/api/vaults/${vaultId}`;
-		const url = new URL(request.url);
-		expect(url.pathname.startsWith(prefix + "/")).toBe(true);
 		const headers = new Headers(request.headers);
-		headers.set("X-Vault-Id", vaultId);
-		const response = await mf.dispatchFetch(`https://test${url.pathname.slice(prefix.length)}`, {
+		headers.set("Cf-Access-Jwt-Assertion", TEST_ACCESS_ASSERTION);
+		const response = await mf.dispatchFetch(request.url, {
 			method: request.method,
 			headers: Object.fromEntries(headers),
 			body: request.body ? await request.arrayBuffer() : undefined,
 		});
-		if (loseAcknowledgment && url.pathname.endsWith("/operations")) {
+		if (loseAcknowledgment && new URL(request.url).pathname.endsWith("/operations")) {
 			loseAcknowledgment = false;
 			await response.arrayBuffer();
 			throw new Error("Connection lost after the Worker accepted the operation");
@@ -51,18 +48,19 @@ async function start() {
 		});
 	};
 	vi.stubGlobal("fetch", fetcher);
+	const server = serverConnection("https://test", {
+		clientId: "cli-client.access",
+		clientSecret: "test-secret",
+	});
+	const account = new AccountApi(server);
+	const { id: vaultId } = await account.createVault("CLI vault");
 	return async () => {
 		const root = await runtime.temporaryDirectory();
 		const metadata = await ensureMetadataDirectory(root);
 		const vault = new FileVault(root);
-		const api = new VaultApi(
-			serverConnection("https://test", {
-				clientId: "cli-client.access",
-				clientSecret: "test-secret",
-			}),
-			crypto.randomUUID(),
-			vaultId,
-		);
+		const deviceId = crypto.randomUUID();
+		await account.registerDevice(deviceId, "CLI device");
+		const api = new VaultApi(server, deviceId, vaultId);
 		const withStore = async <T>(dryRun: boolean, use: (ports: SyncOnceOptions) => Promise<T>) => {
 			const store = new SqliteStore(join(metadata, "state.sqlite"), dryRun);
 			try {
@@ -209,7 +207,7 @@ describe("CLI filesystem and SQLite against the real Worker", () => {
 
 		const store = new SqliteStore(join(right.root, ".cf-sync/state.sqlite"));
 		try {
-			expect((await store.load())?.conflicts).toEqual(result.conflicts);
+			expect((await store.load())?.conflictIds).toEqual(result.conflicts.map((file) => file.id));
 		} finally {
 			store.close();
 		}

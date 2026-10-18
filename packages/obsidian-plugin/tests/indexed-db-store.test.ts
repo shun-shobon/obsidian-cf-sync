@@ -1,7 +1,20 @@
 import "fake-indexeddb/auto";
+import type { FileRecord } from "@cf-sync/protocol";
+import { SyncState } from "@cf-sync/sync-core/sync/service/sync-state";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { IndexedDbStore } from "../src/infra/storage/indexed-db-store";
+
+const conflictFile: FileRecord = {
+	id: "",
+	path: "note.conflict.md",
+	kind: "text",
+	revision: 1,
+	pathRevision: 1,
+	digest: "",
+	size: 0,
+	conflict: true,
+};
 
 const stores: IndexedDbStore[] = [];
 
@@ -49,4 +62,31 @@ it("rejects an explicit transaction abort even when IndexedDB supplies no error"
 	expect(failure).toMatchObject({ cause: null });
 	vi.restoreAllMocks();
 	expect(await store.get("note")).toEqual(new Uint8Array([1]));
+});
+
+it("rewrites legacy conflict records into IDs when the state loads", async () => {
+	const name = crypto.randomUUID();
+	const store = new IndexedDbStore(name);
+	stores.push(store);
+	const conflictId = crypto.randomUUID();
+	const legacy = new SyncState(
+		store,
+		() => {},
+		() => {},
+	).data;
+	Reflect.deleteProperty(legacy, "conflictIds");
+	Reflect.set(legacy, "conflicts", [{ id: conflictId, path: "note.conflict.md" }]);
+	await store.save(legacy);
+
+	const onConflict = vi.fn();
+	const state = new SyncState(store, () => {}, onConflict);
+	await state.load();
+	state.reportConflict({ ...conflictFile, id: conflictId }, "conflict");
+
+	expect(onConflict).not.toHaveBeenCalled();
+	const reopened = new IndexedDbStore(name);
+	stores.push(reopened);
+	const loaded = await reopened.load();
+	expect(loaded).not.toHaveProperty("conflicts");
+	expect(loaded?.conflictIds).toEqual([conflictId]);
 });

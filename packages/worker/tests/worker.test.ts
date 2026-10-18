@@ -77,12 +77,16 @@ function setup() {
 		},
 	} as unknown as Env;
 	const sockets: WebSocket[] = [];
-	const state = { storage, getWebSockets: () => sockets } as unknown as DurableObjectState;
-	let vault = new Vault(state, env);
 	const vaultId = crypto.randomUUID();
 	const deviceId = crypto.randomUUID();
+	const state = {
+		id: { name: vaultId },
+		storage,
+		getWebSockets: () => sockets,
+	} as unknown as DurableObjectState;
+	let vault = new Vault(state, env);
 	const operation = async (op: Operation) =>
-		unwrapRpcResult(await vault.applyOperation(vaultId, deviceId, jsonStream(op)));
+		unwrapRpcResult(await vault.applyOperation(deviceId, jsonStream(op)));
 	return {
 		storage,
 		objects,
@@ -93,12 +97,11 @@ function setup() {
 			vault.webSocketClose(ws, 1000);
 		},
 		snapshot: async () => {
-			const result = unwrapRpcResult(await vault.snapshot(vaultId));
+			const result = unwrapRpcResult(await vault.snapshot());
 			return await new Response(result).json<Snapshot>();
 		},
-		exclusions: async (paths: string[]) =>
-			unwrapRpcResult(await vault.setExclusions(vaultId, paths)),
-		ticket: async () => unwrapRpcResult(await vault.issueTicket(vaultId, deviceId)),
+		exclusions: async (paths: string[]) => unwrapRpcResult(await vault.setExclusions(paths)),
+		ticket: async () => unwrapRpcResult(await vault.issueTicket(deviceId)),
 		removeDevice: async () => unwrapRpcResult(await vault.removeDevice(deviceId)),
 		operation,
 		vaultId,
@@ -115,8 +118,9 @@ function setup() {
 				clock.mockRestore();
 			}
 		},
-		restart: () => {
-			vault = new Vault(state, env);
+		restart: (name: string | null = vaultId) => {
+			const id = { name: name ?? undefined };
+			vault = new Vault({ ...state, id } as DurableObjectState, env);
 		},
 	};
 }
@@ -191,6 +195,23 @@ describe("Vault durable synchronization", () => {
 		await s.alarm();
 		expect(s.objects.get(`vaults/${s.vaultId}/files/a.md`)).toBe("one");
 		expect((await s.snapshot()).r2Revision).toBe(1);
+	});
+
+	it("flushes to the stored vault when an alarm runs without the object name", async () => {
+		const s = setup();
+		await s.operation(create("a.md", "one"));
+		s.restart(null);
+		await s.alarm();
+
+		expect(s.objects.get(`vaults/${s.vaultId}/files/a.md`)).toBe("one");
+	});
+
+	it("refuses to initialize a vault that was not addressed by name", async () => {
+		const s = setup();
+		s.restart(null);
+
+		await expect(s.snapshot()).rejects.toThrow("Vault Durable Object must be addressed by name");
+		expect(s.storage.data.has("meta")).toBe(false);
 	});
 
 	it("converges offline text edits and preserves edited content on stale deletion", async () => {
@@ -306,9 +327,13 @@ describe("Vault durable synchronization", () => {
 		await s.storage.put(ticketKey, { ...stored, expiresAt: 0 });
 		const request = () =>
 			new Request(`https://internal/ws?ticket=${issued.ticket}`, {
-				headers: { "X-Vault-Id": s.vaultId, Upgrade: "websocket" },
+				headers: { Upgrade: "websocket" },
 			});
-		const state = { storage: s.storage, getWebSockets: () => [] } as unknown as DurableObjectState;
+		const state = {
+			id: { name: s.vaultId },
+			storage: s.storage,
+			getWebSockets: () => [],
+		} as unknown as DurableObjectState;
 		const vault = new Vault(state, {} as Env);
 		expect((await vault.fetch(request())).status).toBe(401);
 		expect((await vault.fetch(request())).status).toBe(401);
@@ -353,11 +378,15 @@ describe("Durable Object RPC", () => {
 			const s = setup();
 			const stream = new Blob([body]).stream();
 			const vault = new Vault(
-				{ storage: s.storage, getWebSockets: () => [] } as unknown as DurableObjectState,
+				{
+					id: { name: s.vaultId },
+					storage: s.storage,
+					getWebSockets: () => [],
+				} as unknown as DurableObjectState,
 				s.env,
 			);
 
-			expect(await vault.applyOperation(s.vaultId, s.deviceId, stream)).toMatchObject({
+			expect(await vault.applyOperation(s.deviceId, stream)).toMatchObject({
 				ok: false,
 				error: { kind: "invalid-input" },
 			});

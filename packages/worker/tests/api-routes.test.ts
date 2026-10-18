@@ -23,9 +23,10 @@ function setup() {
 		snapshot: vi.fn(async () => ({ ok: true, value: Response.json({ revision: 1 }).body! })),
 		issueTicket: vi.fn(async () => ({ ok: true, value: { ticket: "secret", expiresAt: 123 } })),
 	};
+	const vaults = { getByName: vi.fn(() => vault) };
 	const env = {
 		ACCOUNT: { getByName: () => account },
-		VAULTS: { getByName: () => vault },
+		VAULTS: vaults,
 	} as unknown as Env;
 	const app = new Hono<{ Bindings: Env }>().route("/api", apiRoutes);
 	app.onError(onError);
@@ -38,7 +39,7 @@ function setup() {
 			env,
 		);
 
-	return { account, vault, call, vaultId, deviceId };
+	return { account, vault, vaults, call, vaultId, deviceId };
 }
 
 describe("Public API routes", () => {
@@ -48,7 +49,8 @@ describe("Public API routes", () => {
 		expect((await s.call(`/vaults/${s.vaultId}/snapshot`)).status).toBe(200);
 		expect(authenticate).toHaveBeenCalledOnce();
 		expect(s.account.authorizeVaultAccess).toHaveBeenCalledExactlyOnceWith(s.deviceId, s.vaultId);
-		expect(s.vault.snapshot).toHaveBeenCalledExactlyOnceWith(s.vaultId);
+		expect(s.vaults.getByName).toHaveBeenCalledExactlyOnceWith(s.vaultId);
+		expect(s.vault.snapshot).toHaveBeenCalledExactlyOnceWith();
 	});
 
 	it.each([
