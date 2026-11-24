@@ -26,7 +26,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
       - uses: ./.github/actions/setup
-      - uses: shun-shobon/easy-release@6fb967fe0de66ae629160ba29b180e7a424f549d # v0.2.0
+      - uses: shun-shobon/easy-release@4dd5d025b5fb6d04d5399bbcf61d7d691bda539c # v0.3.0
         with:
           mode: prepare
           release-type: ${{ inputs.release_type }}
@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
-      - uses: shun-shobon/easy-release@6fb967fe0de66ae629160ba29b180e7a424f549d # v0.2.0
+      - uses: shun-shobon/easy-release@4dd5d025b5fb6d04d5399bbcf61d7d691bda539c # v0.3.0
         id: draft
         with:
           mode: draft
@@ -91,7 +91,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.draft.outputs.commit }}
-      - uses: shun-shobon/easy-release@6fb967fe0de66ae629160ba29b180e7a424f549d # v0.2.0
+      - uses: shun-shobon/easy-release@4dd5d025b5fb6d04d5399bbcf61d7d691bda539c # v0.3.0
         with:
           mode: publish
           release-id: ${{ needs.draft.outputs.release-id }}
