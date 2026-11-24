@@ -15,7 +15,7 @@
 		"@cf-sync/protocol": "workspace:*",
 		"hono": "catalog:",
 		"i18next": "catalog:",
-		"jose": "6.2.12",
+		"jose": "6.2.18",
 		"js-base64": "catalog:",
 		"valibot": "catalog:",
 		"yjs": "catalog:"
