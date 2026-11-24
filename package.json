@@ -35,7 +35,7 @@
 		"miniflare": "4.20260730.0",
 		"oxfmt": "0.72.0",
 		"oxlint": "1.87.0",
-		"oxlint-tsgolint": "7.0.2003",
+		"oxlint-tsgolint": "7.0.2008",
 		"tsx": "4.23.13",
 		"typescript": "7.0.2",
 		"vitest": "5.0.0",
