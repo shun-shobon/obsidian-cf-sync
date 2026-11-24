@@ -41,5 +41,5 @@
 		"vitest": "5.0.0",
 		"yjs": "catalog:"
 	},
-	"packageManager": "pnpm@12.3.4"
+	"packageManager": "pnpm@12.22.0"
 }
