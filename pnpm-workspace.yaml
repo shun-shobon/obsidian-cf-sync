@@ -22,6 +22,6 @@ catalog:
   hono: 4.13.7
   i18next: 26.4.2
   js-base64: 3.9.7
-  lib0: 0.2.117
+  lib0: 0.2.120
   valibot: 1.5.0
   yjs: 13.6.33
