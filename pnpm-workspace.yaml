@@ -17,7 +17,7 @@ overrides:
   "@codemirror/state": "6.5.0"
   "@codemirror/view": "6.38.6"
 catalog:
-  "@cloudflare/workers-types": 5.20261122.2
+  "@cloudflare/workers-types": 5.20261123.1
   fake-indexeddb: 6.2.8
   hono: 4.13.7
   i18next: 26.7.2
