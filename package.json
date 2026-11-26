@@ -33,7 +33,7 @@
 		"hono": "catalog:",
 		"js-base64": "catalog:",
 		"miniflare": "4.20260730.0",
-		"oxfmt": "0.79.0",
+		"oxfmt": "0.80.0",
 		"oxlint": "1.87.0",
 		"oxlint-tsgolint": "7.0.2008",
 		"tsx": "4.23.15",
