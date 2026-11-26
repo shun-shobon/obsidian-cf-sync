@@ -28,7 +28,7 @@
 		"@tsconfig/node-lts": "24.0.1",
 		"@tsconfig/strictest": "2.0.9",
 		"@types/node": "24.13.3",
-		"esbuild": "0.28.1",
+		"esbuild": "0.28.2",
 		"fake-indexeddb": "catalog:",
 		"hono": "catalog:",
 		"js-base64": "catalog:",
