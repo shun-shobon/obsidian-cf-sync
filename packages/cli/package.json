@@ -32,7 +32,7 @@
 		"@cf-sync/protocol": "workspace:*",
 		"@cf-sync/sync-core": "workspace:*",
 		"citty": "0.2.2",
-		"tsdown": "0.23.0",
+		"tsdown": "0.23.7",
 		"valibot": "catalog:"
 	},
 	"engines": {

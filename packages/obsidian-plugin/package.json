@@ -30,6 +30,6 @@
 		"fake-indexeddb": "catalog:",
 		"happy-dom": "20.14.0",
 		"obsidian": "1.14.4",
-		"tsdown": "0.23.0"
+		"tsdown": "0.23.7"
 	}
 }
