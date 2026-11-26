@@ -26,7 +26,7 @@
 		"@shun-shobon/oxfmt-config": "7.1.2",
 		"@shun-shobon/oxlint-config": "7.0.0",
 		"@tsconfig/node-lts": "24.0.1",
-		"@tsconfig/strictest": "2.0.8",
+		"@tsconfig/strictest": "2.0.9",
 		"@types/node": "24.13.3",
 		"esbuild": "0.28.1",
 		"fake-indexeddb": "catalog:",
