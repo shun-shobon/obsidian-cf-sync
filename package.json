@@ -34,7 +34,7 @@
 		"js-base64": "catalog:",
 		"miniflare": "4.20260730.0",
 		"oxfmt": "0.80.0",
-		"oxlint": "1.87.0",
+		"oxlint": "1.95.0",
 		"oxlint-tsgolint": "7.0.2008",
 		"tsx": "4.23.15",
 		"typescript": "7.0.2",
