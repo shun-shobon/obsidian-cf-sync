@@ -229,8 +229,8 @@ importers:
         specifier: 7.1.2
         version: 7.1.2(oxfmt@0.80.0)
       '@shun-shobon/oxlint-config':
-        specifier: 7.0.0
-        version: 7.0.0(oxlint-tsgolint@7.0.2008)(oxlint@1.87.0(oxlint-tsgolint@7.0.2008))
+        specifier: 7.1.2
+        version: 7.1.2(oxlint-tsgolint@7.0.2008)(oxlint@1.87.0(oxlint-tsgolint@7.0.2008))
       '@tsconfig/node-lts':
         specifier: 24.0.1
         version: 24.0.1
@@ -1533,8 +1533,8 @@ packages:
     peerDependencies:
       oxfmt: '>=0.72.0 <1.0.0'
 
-  '@shun-shobon/oxlint-config@7.0.0':
-    resolution: {integrity: sha512-FjbSFchaO2QyRN5TZnCtqcpADVqz330Yc3xUnyzcwNCcqxF/3BIRFwiTcR90YoeLRAD1ZryBa8lozg8eAidlCw==}
+  '@shun-shobon/oxlint-config@7.1.2':
+    resolution: {integrity: sha512-jVZorq3JGgj1k1sF+fEnKRjuj+2axkclwLcCfqnNRavjFte7C79s+Mxtq+/q4Kt/3+dxFvx3g5qhG+cWbqne0A==}
     peerDependencies:
       oxlint: ^1.87.0
       oxlint-tsgolint: ^7.0.2003
@@ -1979,10 +1979,6 @@ packages:
     resolution: {integrity: sha512-WkUDrojuJs0xkgGf2udWxa3yGBRxPtxUkB79i6aCZLRgc7PM8fZe9TosfPDcvEpQZbuFASnHYmRLBLUbmLOIIA==}
     engines: {node: '>= 12.0.0'}
 
-  local-pkg@1.2.1:
-    resolution: {integrity: sha512-++gUqRDEvcnN6Zhqrr+y/CkVEHhlrR96vZn3nZZPYzMcBUyBtTKzB9NadClFIsIVSsu+3i9tfk/erqy9kAmt7Q==}
-    engines: {node: '>=14'}
-
   local-pkg@2.0.0:
     resolution: {integrity: sha512-xvTNwM27EpU+fkLSpo33Pq/nm8m5zNf0aU/hF4W4ZM9RHQjVZa5KTmmXIzEzVsdI09NOUqj0djHhTv96sUowSQ==}
     engines: {node: '>=20.19.0'}
@@ -2078,9 +2074,6 @@ packages:
   postcss@8.5.28:
     resolution: {integrity: sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A==}
     engines: {node: ^10 || ^12 || >=14}
-
-  quansync@0.2.11:
-    resolution: {integrity: sha512-AifT7QEbW9Nri4tAwR5M/uzpBuqfZf+zwaEM/QkzEjj7NBuFD2rBuy0K3dE+8wltbezDV7JMA0WfnCPYRSYbXA==}
 
   quansync@1.0.0:
     resolution: {integrity: sha512-5xZacEEufv3HSTPQuchrvV6soaiACMFnq1H8wkVioctoH3TRha9Sz66lOxRwPK/qZj7HPiSveih9yAyh98gvqA==}
@@ -3046,9 +3039,9 @@ snapshots:
       local-pkg: 2.0.0
       oxfmt: 0.80.0
 
-  '@shun-shobon/oxlint-config@7.0.0(oxlint-tsgolint@7.0.2008)(oxlint@1.87.0(oxlint-tsgolint@7.0.2008))':
+  '@shun-shobon/oxlint-config@7.1.2(oxlint-tsgolint@7.0.2008)(oxlint@1.87.0(oxlint-tsgolint@7.0.2008))':
     dependencies:
-      local-pkg: 1.2.1
+      local-pkg: 2.0.0
       oxlint: 1.87.0(oxlint-tsgolint@7.0.2008)
     optionalDependencies:
       oxlint-tsgolint: 7.0.2008
@@ -3387,12 +3380,6 @@ snapshots:
       lightningcss-win32-arm64-msvc: 1.33.0
       lightningcss-win32-x64-msvc: 1.33.0
 
-  local-pkg@1.2.1:
-    dependencies:
-      mlly: 1.8.2
-      pkg-types: 2.3.3
-      quansync: 0.2.11
-
   local-pkg@2.0.0:
     dependencies:
       mlly: 1.8.2
@@ -3530,8 +3517,6 @@ snapshots:
       nanoid: 3.3.18
       picocolors: 1.1.1
       source-map-js: 1.2.1
-
-  quansync@0.2.11: {}
 
   quansync@1.0.0: {}
 
