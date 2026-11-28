@@ -209,8 +209,8 @@ catalogs:
       version: 13.6.33
 
 overrides:
-  '@codemirror/state': 6.5.0
-  '@codemirror/view': 6.38.6
+  '@codemirror/state': 6.7.6
+  '@codemirror/view': 6.44.0
 
 importers:
 
@@ -323,7 +323,7 @@ importers:
         version: 1.5.0(typescript@7.0.2)
       y-codemirror.next:
         specifier: 0.3.6
-        version: 0.3.6(@codemirror/state@6.5.0)(@codemirror/view@6.38.6)(yjs@13.6.33)
+        version: 0.3.6(@codemirror/state@6.7.6)(@codemirror/view@6.44.0)(yjs@13.6.33)
       y-protocols:
         specifier: 1.0.7
         version: 1.0.7(yjs@13.6.33)
@@ -332,14 +332,14 @@ importers:
         version: 13.6.33
     devDependencies:
       '@codemirror/commands':
-        specifier: 6.11.0
-        version: 6.11.0
+        specifier: 6.11.2
+        version: 6.11.2
       '@codemirror/state':
-        specifier: 6.5.0
-        version: 6.5.0
+        specifier: 6.7.6
+        version: 6.7.6
       '@codemirror/view':
-        specifier: 6.38.6
-        version: 6.38.6
+        specifier: 6.44.0
+        version: 6.44.0
       '@types/auth-header':
         specifier: 1.0.6
         version: 1.0.6
@@ -351,7 +351,7 @@ importers:
         version: 20.14.0
       obsidian:
         specifier: 1.14.4
-        version: 1.14.4(@codemirror/state@6.5.0)(@codemirror/view@6.38.6)
+        version: 1.14.4(@codemirror/state@6.7.6)(@codemirror/view@6.44.0)
       tsdown:
         specifier: 0.23.7
         version: 0.23.7(tsx@4.23.15)(typescript@7.0.2)
@@ -502,17 +502,17 @@ packages:
   '@cloudflare/workers-types@5.20261124.1':
     resolution: {integrity: sha512-n99jv9oDm6AYg7dTkRYJVgD5GhXG14Cd8rLDtbld28ZjGJVKFtQPXJxnVoOV2IBSRuqHt0PnP/4oqoiUKw2SAA==}
 
-  '@codemirror/commands@6.11.0':
-    resolution: {integrity: sha512-/K4Rl5BN0OtTiPWmJCdqODu38XnDMsDxKY5rgrPnCkutPTJf2wVbkoixLfealF5Kwse/s8P8M5jAiURiwSwnFA==}
+  '@codemirror/commands@6.11.2':
+    resolution: {integrity: sha512-NbH6Q9lmcXvf9s5/mMJIwL2Hjl2NEdsN/dDlezGnaFOQgNZ59dT7ndKUf21/PIjJacD/Ti2Ifi4TsBkO6WHvsg==}
 
   '@codemirror/language@6.12.4':
     resolution: {integrity: sha512-1q4PaT+o6PbgpkJt4Q8Fv5XJxTy4FUZ4MWETtyiDw3J0Pyr9E2vqcKL+k9wcvjNTIsauxvE7OfmWj3FRPHQ76A==}
 
-  '@codemirror/state@6.5.0':
-    resolution: {integrity: sha512-MwBHVK60IiIHDcoMet78lxt6iw5gJOGSbNbOIVBHWVXIH4/Nq1+GQgLLGgI1KlnN86WDXsPudVaqYHKBIx7Eyw==}
+  '@codemirror/state@6.7.6':
+    resolution: {integrity: sha512-kAz+AncRtKuIknedxT1bq4XwXv4UowhbkHU1myPrtVb/jZtImWuV5BXzv5vK6i3kYACsdiZiQKFQQ5Mq7elW8w==}
 
-  '@codemirror/view@6.38.6':
-    resolution: {integrity: sha512-qiS0z1bKs5WOvHIAC0Cybmv4AJSkAXgX5aD6Mqd2epSLlVJsQl8NG23jCVouIgkh4All/mrbdsf2UOLFnJw0tw==}
+  '@codemirror/view@6.44.0':
+    resolution: {integrity: sha512-kAUekx35l9u64jW/NzdO054l80lz+ri+Z5ZFS+dMpMrCbG5pFiTz58twWcWghzBEInWno0SPaURNSCnHHvipnQ==}
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -2016,8 +2016,8 @@ packages:
   obsidian@1.14.4:
     resolution: {integrity: sha512-Kyo+5t0wFW2On5irLOPrgtwWDnaJsvE9n/P1OVvdPytx+NqeHJXvxVqADNOqLp9bU1+I64B6i+dHb0fxR/ss3w==}
     peerDependencies:
-      '@codemirror/state': 6.5.0
-      '@codemirror/view': 6.38.6
+      '@codemirror/state': 6.7.6
+      '@codemirror/view': 6.44.0
 
   obug@3.0.0:
     resolution: {integrity: sha512-5vvB5+W7ePv+p3uqxi+RcW1XAzLW0/hxt3/4X4Lc4qHudzOhmBiBwOY6DRob4WnanAEGvNcLjF+KNOufrUoEQw==}
@@ -2372,8 +2372,8 @@ packages:
   y-codemirror.next@0.3.6:
     resolution: {integrity: sha512-GnmVXhTe+UtoFbbaSdwhq6gdAQZdIY9az0Xj6HR2J4PO6Yw4w3xaaSssU+6T72WhXAI0wf9FbuY2s0Ms+WrexA==}
     peerDependencies:
-      '@codemirror/state': 6.5.0
-      '@codemirror/view': 6.38.6
+      '@codemirror/state': 6.7.6
+      '@codemirror/view': 6.44.0
       yjs: ^13.5.6
 
   y-protocols@1.0.7:
@@ -2443,29 +2443,29 @@ snapshots:
 
   '@cloudflare/workers-types@5.20261124.1': {}
 
-  '@codemirror/commands@6.11.0':
+  '@codemirror/commands@6.11.2':
     dependencies:
       '@codemirror/language': 6.12.4
-      '@codemirror/state': 6.5.0
-      '@codemirror/view': 6.38.6
+      '@codemirror/state': 6.7.6
+      '@codemirror/view': 6.44.0
       '@lezer/common': 1.5.2
 
   '@codemirror/language@6.12.4':
     dependencies:
-      '@codemirror/state': 6.5.0
-      '@codemirror/view': 6.38.6
+      '@codemirror/state': 6.7.6
+      '@codemirror/view': 6.44.0
       '@lezer/common': 1.5.2
       '@lezer/highlight': 1.2.3
       '@lezer/lr': 1.4.10
       style-mod: 4.1.3
 
-  '@codemirror/state@6.5.0':
+  '@codemirror/state@6.7.6':
     dependencies:
       '@marijn/find-cluster-break': 1.0.4
 
-  '@codemirror/view@6.38.6':
+  '@codemirror/view@6.44.0':
     dependencies:
-      '@codemirror/state': 6.5.0
+      '@codemirror/state': 6.7.6
       crelt: 1.0.7
       style-mod: 4.1.3
       w3c-keyname: 2.2.8
@@ -3440,10 +3440,10 @@ snapshots:
 
   oauth4webapi@3.8.9: {}
 
-  obsidian@1.14.4(@codemirror/state@6.5.0)(@codemirror/view@6.38.6):
+  obsidian@1.14.4(@codemirror/state@6.7.6)(@codemirror/view@6.44.0):
     dependencies:
-      '@codemirror/state': 6.5.0
-      '@codemirror/view': 6.38.6
+      '@codemirror/state': 6.7.6
+      '@codemirror/view': 6.44.0
       '@types/codemirror': 5.60.8
       moment: 2.31.0
 
@@ -3806,10 +3806,10 @@ snapshots:
 
   ws@8.21.0: {}
 
-  y-codemirror.next@0.3.6(@codemirror/state@6.5.0)(@codemirror/view@6.38.6)(yjs@13.6.33):
+  y-codemirror.next@0.3.6(@codemirror/state@6.7.6)(@codemirror/view@6.44.0)(yjs@13.6.33):
     dependencies:
-      '@codemirror/state': 6.5.0
-      '@codemirror/view': 6.38.6
+      '@codemirror/state': 6.7.6
+      '@codemirror/view': 6.44.0
       lib0: 0.2.120
       yjs: 13.6.33
 

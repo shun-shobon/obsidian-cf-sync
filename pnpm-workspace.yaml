@@ -14,8 +14,8 @@ allowBuilds:
   workerd@1.20260730.1: true
   workerd@1.20260907.1: true
 overrides:
-  "@codemirror/state": "6.5.0"
-  "@codemirror/view": "6.38.6"
+  "@codemirror/state": "6.7.6"
+  "@codemirror/view": "6.44.0"
 catalog:
   "@cloudflare/workers-types": 5.20261124.1
   fake-indexeddb: 6.2.8

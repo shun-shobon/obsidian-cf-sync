@@ -23,9 +23,9 @@
 		"yjs": "catalog:"
 	},
 	"devDependencies": {
-		"@codemirror/commands": "6.11.0",
-		"@codemirror/state": "6.5.0",
-		"@codemirror/view": "6.38.6",
+		"@codemirror/commands": "6.11.2",
+		"@codemirror/state": "6.7.6",
+		"@codemirror/view": "6.44.0",
 		"@types/auth-header": "1.0.6",
 		"fake-indexeddb": "catalog:",
 		"happy-dom": "20.14.0",
