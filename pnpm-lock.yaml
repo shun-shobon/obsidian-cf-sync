@@ -193,8 +193,8 @@ catalogs:
       specifier: 4.13.7
       version: 4.13.7
     i18next:
-      specifier: 26.7.2
-      version: 26.7.2
+      specifier: 27.2.9
+      version: 27.2.9
     js-base64:
       specifier: 3.9.7
       version: 3.9.7
@@ -308,7 +308,7 @@ importers:
         version: 1.0.0
       i18next:
         specifier: 'catalog:'
-        version: 26.7.2(typescript@7.0.2)
+        version: 27.2.9(typescript@7.0.2)
       js-base64:
         specifier: 'catalog:'
         version: 3.9.7
@@ -376,7 +376,7 @@ importers:
         version: link:../protocol
       i18next:
         specifier: 'catalog:'
-        version: 26.7.2(typescript@7.0.2)
+        version: 27.2.9(typescript@7.0.2)
       js-base64:
         specifier: 'catalog:'
         version: 3.9.7
@@ -403,7 +403,7 @@ importers:
         version: 4.13.7
       i18next:
         specifier: 'catalog:'
-        version: 26.7.2(typescript@7.0.2)
+        version: 27.2.9(typescript@7.0.2)
       jose:
         specifier: 6.2.18
         version: 6.2.18
@@ -1875,8 +1875,9 @@ packages:
   hookable@6.1.2:
     resolution: {integrity: sha512-+abwxtiEA52GCVIsQqut3S/uKTbUwYIp4Pe/vv+6py5XiXBCqMZHg6pA6Y5qhgLSEys0/cYuPbO0z1QFj5ZCmg==}
 
-  i18next@26.7.2:
-    resolution: {integrity: sha512-RsOY3BeaCDdkk52NeJSFAXELQ2rQXBO/tOub6L8ue2ICPfR/FRDWDOfEDg4xMPd1SqO5goVYQ6i72qWEUB/PPw==}
+  i18next@27.2.9:
+    resolution: {integrity: sha512-GOWWofCGYPSPEzUKJnRLJSoHrSUDa/NzYWqAOJJDZUaM7faLPd9VABlbHDZ+jv8uadu/fq1wsHFfZP6+0tFPkg==}
+    engines: {node: '>=22'}
     peerDependencies:
       typescript: ^5 || ^6 || ^7
     peerDependenciesMeta:
@@ -3320,7 +3321,7 @@ snapshots:
 
   hookable@6.1.2: {}
 
-  i18next@26.7.2(typescript@7.0.2):
+  i18next@27.2.9(typescript@7.0.2):
     optionalDependencies:
       typescript: 7.0.2
 
